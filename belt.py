@@ -9,13 +9,14 @@ def main():
 @main.command()
 @click.argument('input_fastq')
 @click.option('--output', required=True, help="Output FASTQ file")
+@click.option('--min_read_length', default=3900, help="Minimum expected read length")
 @click.option('--motif5', required=True, help="5' motif sequence")
 @click.option('--motif3', required=True, help="3' motif sequence")
 @click.option('--fuzzy', default=2, help="Number of fuzzy mismatches allowed")
 @click.option('--window', default=50, help="Motif search window size")
-def extract(input_fastq, output, motif5, motif3, fuzzy, window):
+def extract(input_fastq, min_read_length, output, motif5, motif3, fuzzy, window):
     """Extract reads based on motifs and UMIs"""
-    extract_reads(input_fastq, output, motif5, motif3, fuzzy, window)
+    extract_reads(input_fastq, min_read_length, output, motif5, motif3, fuzzy, window)
 
 # Additional commands will follow this pattern
 
