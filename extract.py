@@ -1,4 +1,10 @@
 import click
+from Bio.Seq import Seq
+from Bio import SeqIO
+from difflib import SequenceMatcher
+from utils import log
+from umi_tools import UMIClusterer
+from collections import Counter
 
 @click.command()
 @click.argument('input_fastq')
@@ -132,7 +138,7 @@ def is_fuzzy_match(read_seq, motif, max_mismatches):
     return False, None
 
 def lengthCheck(read, min_length):# boolean operator to check is the individual read is equal or greater than the minimum read length
-    if min_length >= str(read):
+    if min_length >= len(str(read)):
         True
     else:
         False
