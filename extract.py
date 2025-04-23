@@ -16,55 +16,56 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     read_name = []
     umi_5p_list = []
     umi_3p_list = []
-    i= 0
+
     with open(input_fastq, 'r') as in_handle:
         for record in SeqIO.parse(in_handle, "fastq"):
             seq = str(record.seq)
             rc_seq = str(record.seq.reverse_complement())
-
-            # Check for motifs in the forward sequence
-            #i +=1  
-            #print(i, is_fuzzy_match(seq[:window], motif_5p, fuzzy),seq )
-            match_5p, matched_5p = is_fuzzy_match(seq[:window], motif_5p, fuzzy)
-            match_3p, matched_3p = is_fuzzy_match(seq[-window:], motif_3p, fuzzy)
-
-            if match_5p and match_3p:
-                umi_5p_start = seq.find(matched_5p) + len(matched_5p)
-                umi_3p_end = seq.rfind(matched_3p)
-                umi_5p = seq[umi_5p_start:umi_5p_start + 12] if umi_3p_end - umi_5p_start >= 12 else None
-                umi_3p = seq[umi_3p_end - 13:umi_3p_end+1] if umi_3p_end - umi_5p_start >= 12 else None
-                new_record = record
+            if len(seq) <= min_read_length:
+                skipped += 1
             else:
-                # Check for motifs in the reverse complement sequence
-                match_5p, matched_5p = is_fuzzy_match(rc_seq[:window], motif_5p, fuzzy)
-                match_3p, matched_3p = is_fuzzy_match(rc_seq[-window:], motif_3p, fuzzy)
+                # Check for motifs in the forward sequence
+                #print(i, is_fuzzy_match(seq[:window], motif_5p, fuzzy),seq )
+                match_5p, matched_5p = is_fuzzy_match(seq[:window], motif_5p, fuzzy)
+                match_3p, matched_3p = is_fuzzy_match(seq[-window:], motif_3p, fuzzy)
 
                 if match_5p and match_3p:
-                    record.seq = Seq(rc_seq)
-                    umi_5p_start = rc_seq.find(matched_5p) + len(matched_5p)
-                    umi_3p_end = rc_seq.rfind(matched_3p)
-                    umi_5p = rc_seq[umi_5p_start:umi_5p_start + 12] if umi_3p_end - umi_5p_start >= 12 else None
-                    umi_3p = rc_seq[umi_3p_end - 13:umi_3p_end+1] if umi_3p_end - umi_5p_start >= 12 else None
+                    umi_5p_start = seq.find(matched_5p) + len(matched_5p)
+                    umi_3p_end = seq.rfind(matched_3p)
+                    umi_5p = seq[umi_5p_start:umi_5p_start + 12] if umi_3p_end - umi_5p_start >= 12 else None
+                    umi_3p = seq[umi_3p_end - 13:umi_3p_end+1] if umi_3p_end - umi_5p_start >= 12 else None
                     new_record = record
                 else:
+                    # Check for motifs in the reverse complement sequence
+                    match_5p, matched_5p = is_fuzzy_match(rc_seq[:window], motif_5p, fuzzy)
+                    match_3p, matched_3p = is_fuzzy_match(rc_seq[-window:], motif_3p, fuzzy)
+
+                    if match_5p and match_3p:
+                        record.seq = Seq(rc_seq)
+                        umi_5p_start = rc_seq.find(matched_5p) + len(matched_5p)
+                        umi_3p_end = rc_seq.rfind(matched_3p)
+                        umi_5p = rc_seq[umi_5p_start:umi_5p_start + 12] if umi_3p_end - umi_5p_start >= 12 else None
+                        umi_3p = rc_seq[umi_3p_end - 13:umi_3p_end+1] if umi_3p_end - umi_5p_start >= 12 else None
+                        new_record = record
+                    else:
+                        skipped += 1
+                        continue
+
+                # Skip reads without both UMIs
+                if not umi_5p or not umi_3p:
                     skipped += 1
                     continue
 
-            # Skip reads without both UMIs
-            if not umi_5p or not umi_3p:
-                skipped += 1
-                continue
-
-            # only keep reads with both UMIs
-            if umi_5p and umi_3p:
-                read.append(record)
-                read_name.append(record.id)
-                umi_5p_list.append(umi_5p)
-                umi_3p_list.append(umi_3p)
+                # only keep reads with both UMIs
+                if umi_5p and umi_3p:
+                    read.append(record)
+                    read_name.append(record.id)
+                    umi_5p_list.append(umi_5p)
+                    umi_3p_list.append(umi_3p)
+                    #print(f"Read {record.id} has 5' UMI: {umi_5p} and 3' UMI: {umi_3p}")
 
         # temporarily store data as dictionary
         read_dict = dict(zip(read_name, zip(read, umi_5p_list, umi_3p_list)))
-        #print(read_dict)
 
         # count number of each 5p_umi
         umi_5p_correction_dict = umi_correction(umi_5p_list)
@@ -87,7 +88,7 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
 
             SeqIO.write(new_record, out_handle, "fastq")
             written += 1
-
+    log(f"Extracted {written} reads with UMIs and skipped {skipped} reads.")
 
 def umi_correction(umi_list):
     umi_clusterer = UMIClusterer(cluster_method="adjacency")
@@ -127,3 +128,9 @@ def is_fuzzy_match(read_seq, motif, max_mismatches):
         return True, best_match
     else:
         return False, None
+    
+def lengthCheck(read, min_length):# boolean operator to check is the individual read is equal or greater than the minimum read length
+    if min_length >= len(str(read)):
+        True
+    else:
+        False
