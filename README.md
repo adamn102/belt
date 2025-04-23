@@ -16,4 +16,4 @@ python3 belt.py extract reads.fastq --config config.yaml --fuzzy 4
 
 Note to nartsav: /Users/nomur/GitHub/test_data_belt/test_data/filtered_fastq_files/NL43-test.fastq
 
-python3 belt.py extract /Users/nomur/GitHub/test_data_belt/test_data/filtered_fastq_files/NL43-test.fastq --config config.yaml
+python3 belt.py extract /Users/nomur/GitHub/test_data_belt/test_data/raw_fastq_files/NL43-test.fastq --config config.yaml

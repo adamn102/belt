@@ -1,23 +1,9 @@
-import click
 from Bio.Seq import Seq
 from Bio import SeqIO
 from difflib import SequenceMatcher
 from utils import log
 from umi_tools import UMIClusterer
 from collections import Counter
-
-@click.command()
-@click.argument('input_fastq')
-@click.option('--output', required=True, help="Output FASTQ file")
-@click.option('--min_read_length', default=3900, help="Minimum expected read length")
-@click.option('--motif5', required=True, help="5' motif sequence")
-@click.option('--motif3', required=True, help="3' motif sequence")
-@click.option('--fuzzy', default=2, help="Number of fuzzy mismatches allowed")
-@click.option('--window', default=100, help="Motif search window size")
-def cli(input_fastq, min_read_length, output, motif5, motif3, fuzzy, window):
-    """Extract UMIs from reads based on 5' and 3' motifs."""
-    extract_reads(input_fastq, min_read_length, output, motif5, motif3, fuzzy, window)
-
 
 def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p, fuzzy, window):
     log(f"Extracting UMIs from {input_fastq}")
@@ -30,15 +16,15 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     read_name = []
     umi_5p_list = []
     umi_3p_list = []
-
+    i= 0
     with open(input_fastq, 'r') as in_handle:
-        for record in SeqIO.parse(in_handle, "fastq"):#looping through the reads the first time, check size first extract UMI is size is good.
-            if not lengthCheck(record.seq, min_read_length):
-                continue
+        for record in SeqIO.parse(in_handle, "fastq"):
             seq = str(record.seq)
             rc_seq = str(record.seq.reverse_complement())
 
             # Check for motifs in the forward sequence
+            #i +=1  
+            #print(i, is_fuzzy_match(seq[:window], motif_5p, fuzzy),seq )
             match_5p, matched_5p = is_fuzzy_match(seq[:window], motif_5p, fuzzy)
             match_3p, matched_3p = is_fuzzy_match(seq[-window:], motif_3p, fuzzy)
 
@@ -84,8 +70,8 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
         umi_5p_correction_dict = umi_correction(umi_5p_list)
         umi_3p_correction_dict = umi_correction(umi_3p_list)
 
-        print(umi_5p_correction_dict)
-        print(umi_3p_correction_dict)
+        #print(umi_5p_correction_dict)
+        #print(umi_3p_correction_dict)
 
     with open(output_fastq, 'w') as out_handle:
         for i in range(len(read_name)):
@@ -124,21 +110,20 @@ def umi_correction(umi_list):
 def is_fuzzy_match(read_seq, motif, max_mismatches):
     best_match = None
     best_mismatches = max_mismatches + 1  # Initialize with a value greater than max_mismatches
+    #print(read_seq)
 
     for i in range(len(read_seq) - len(motif) + 1):
         substring = read_seq[i:i + len(motif)]
+        #print(substring)
         mismatches = sum(1 for a, b in zip(substring, motif) if a != b)
+        #print(mismatches)
 
         if mismatches <= max_mismatches and mismatches < best_mismatches:
             best_match = substring
             best_mismatches = mismatches
+            #print(best_match)
 
     if best_match is not None:
         return True, best_match
-    return False, None
-
-def lengthCheck(read, min_length):# boolean operator to check is the individual read is equal or greater than the minimum read length
-    if min_length >= len(str(read)):
-        True
     else:
-        False
+        return False, None

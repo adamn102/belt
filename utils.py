@@ -1,2 +1,2 @@
 def log(msg):
-    print(f"[BEBT] {msg}")
+    print(f"[BELT] {msg}")
