@@ -6,9 +6,14 @@ from umi_tools import UMIClusterer
 from collections import Counter
 
 def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p, fuzzy, window):
-    log(f"Extracting UMIs from {input_fastq}")
+    logger = log()
+    logger.log_message(f"Extracting reads from {input_fastq}")
+    logger.log_message(f"Outputting to {output_fastq}")
     written = 0
-    skipped = 0
+    skipped = 0 # This is the number of reads that are skipped 1) if the read is shorter than the minimum read length, 2) if the read does not contain both UMIs
+    no_umi5p = 0
+    no_umi3p = 0
+    no_umi = 0
 
 
     # create UMI lists
@@ -51,10 +56,18 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
                         skipped += 1
                         continue
 
-                # Skip reads without both UMIs
-                if not umi_5p or not umi_3p:
-                    skipped += 1
+                # Skip reads without UMIs, and log the item
+                if not umi_5p:
+                    no_umi5p += 1
                     continue
+                elif not umi_3p:
+                    no_umi3p += 1
+                    continue
+                elif not umi_5p and not umi_3p:
+                    no_umi += 1
+                    continue
+
+
 
                 # only keep reads with both UMIs
                 if umi_5p and umi_3p:
@@ -88,7 +101,8 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
 
             SeqIO.write(new_record, out_handle, "fastq")
             written += 1
-    log(f"Extracted {written} reads with UMIs and skipped {skipped} reads.")
+    logger.extraction_log(input_fastq, output_fastq, written, skipped, no_umi5p, no_umi3p, no_umi)
+
 
 def umi_correction(umi_list):
     umi_clusterer = UMIClusterer(cluster_method="adjacency")
