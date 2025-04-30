@@ -1,7 +1,7 @@
 from Bio.Seq import Seq
 from Bio import SeqIO
 from difflib import SequenceMatcher
-from utils import log
+from utils import log, calculator
 from umi_tools import UMIClusterer
 from collections import Counter
 
@@ -15,6 +15,11 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     no_umi3p = 0
     no_umi = 0
 
+    # Advanced UMI extraction, and corrections metrics
+    umi5p_num_before = 0
+    umi3p_num_before = 0
+    umi5p_num_after = 0
+    umi3p_num_after = 0
 
     # create UMI lists
     read = []
@@ -84,8 +89,7 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
         umi_5p_correction_dict = umi_correction(umi_5p_list)
         umi_3p_correction_dict = umi_correction(umi_3p_list)
 
-        #print(umi_5p_correction_dict)
-        #print(umi_3p_correction_dict)
+
 
     with open(output_fastq, 'w') as out_handle:
         for i in range(len(read_name)):
@@ -102,6 +106,17 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
             SeqIO.write(new_record, out_handle, "fastq")
             written += 1
     logger.extraction_log(input_fastq, output_fastq, written, skipped, no_umi5p, no_umi3p, no_umi)
+    calc = calculator()
+    # Calculate hamming distances
+    print(umi_5p_list)
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(umi_5p_list, sample_size=100))
+    #calc.plot_hamming_distances(calc.calculate_hamming_distances(umi_3p_list, sample_size=100))
+    
+    print(list(umi_5p_correction_dict.keys()))
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(umi_5p_correction_dict.keys()), sample_size=100))
+    #calc.plot_hamming_distances(calc.calculate_hamming_distances(umi_3p, sample_size=100))
+    
+
 
 
 def umi_correction(umi_list):
@@ -148,3 +163,4 @@ def lengthCheck(read, min_length):# boolean operator to check is the individual 
         True
     else:
         False
+
