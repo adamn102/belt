@@ -109,7 +109,7 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     calc = calculator()
     # Calculate hamming distances
     print(umi_5p_list)
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(umi_5p_list, sample_size=100))
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=100))
     #calc.plot_hamming_distances(calc.calculate_hamming_distances(umi_3p_list, sample_size=100))
     
     print(list(umi_5p_correction_dict.keys()))
@@ -126,14 +126,14 @@ def umi_correction(umi_list):
     keys = list(umi_counter.keys())
     bit_keys = [umi.encode("utf-8") for umi in keys]
     umi_count_dict = dict(zip(bit_keys, values))
-    clustered_umis = umi_clusterer(umi_count_dict, threshold=3)
+    clustered_umis = umi_clusterer(umi_count_dict, threshold=2)
 
     umi_corrected_dict = {}
     for cluster in clustered_umis:
         primary_umi = cluster[0].decode('utf-8')
         for umi in cluster:
             umi_corrected_dict[umi.decode('utf-8')] = primary_umi
-    return umi_corrected_dict
+    return umi_corrected_dict 
 
 
 
