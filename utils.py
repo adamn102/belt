@@ -125,3 +125,29 @@ class calculator():
         plt.tight_layout()
         plt.show()
 
+    def plot_unique_3p_per_5p(self, umi_pair_dict):
+        """
+        This function generates a bar graph showing the number of unique 3' UMIs for each 5' UMI.
+        :param umi_pair_dict: Dictionary where keys are 5' UMIs and values are lists of associated 3' UMIs
+        :return: None
+        """
+        # Calculate the number of unique 3' UMIs for each 5' UMI
+        unique_3p_counts = {umi_5p: len(set(umi_3p_list)) for umi_5p, umi_3p_list in umi_pair_dict.items()}
+        
+        # Sort the 5' UMIs by the number of unique 3' UMIs in descending order
+        sorted_umis = sorted(unique_3p_counts.items(), key=lambda x: x[1], reverse=True)
+        umi_5p_labels, unique_counts = zip(*sorted_umis)
+        
+        # Plot the bar graph
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.bar(umi_5p_labels, unique_counts, color='skyblue', edgecolor='black')
+        ax.set_xlabel("5' UMIs", fontsize=12)
+        ax.set_ylabel("Number of Unique 3' UMIs", fontsize=12)
+        ax.set_title("Number of Unique 3' UMIs per 5' UMI", fontsize=14)
+        ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # Hide x-axis labels for clarity
+        ax.grid(axis='y', alpha=0.7)
+        
+        plt.tight_layout()
+        plt.show()
+        
+

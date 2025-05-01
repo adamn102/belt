@@ -25,11 +25,10 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     # create UMI lists
     read = []
     read_name = []
-    umi_5p_list = []
-    umi_3p_list = []
+    umi_5p_list = [] # keeps track of the 5' UMI each instance seperately
+    umi_3p_list = []# keeps track of the 3' UMI each instance seperately
+    umi_pair_dict = {}  # Dictionary to store 5' UMI as key and associated 3' UMIs as values
 
-    umi_5p_corr = []
-    umi_3p_corr = []
 
 
     with open(input_fastq, 'r') as in_handle:
@@ -87,6 +86,11 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
                     umi_3p_list.append(umi_3p)
                     #print(f"Read {record.id} has 5' UMI: {umi_5p} and 3' UMI: {umi_3p}")
 
+                    # Track UMI pairs
+                    if umi_5p not in umi_pair_dict:
+                        umi_pair_dict[umi_5p] = []
+                    umi_pair_dict[umi_5p].append(umi_3p)
+
         # temporarily store data as dictionary
         read_dict = dict(zip(read_name, zip(read, umi_5p_list, umi_3p_list)))
 
@@ -101,9 +105,7 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
 
             # Correct UMIs
             umi_5p = umi_5p_correction_dict[umi_5p_list[i]]
-            umi_5p_corr.append(umi_5p)
             umi_3p = umi_3p_correction_dict[umi_3p_list[i]]
-            umi_3p_corr.append(umi_3p)
 
             # Append corrected UMIs to the read name
             new_record = read[i]
@@ -115,15 +117,17 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     logger.extraction_log(input_fastq, output_fastq, written, skipped, no_umi5p, no_umi3p, no_umi)
     calc = calculator()
     # Calculate hamming distances
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=100))
-    calc.plot_umi_frequencies(umi_5p_corr)
-
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_list).keys()), sample_size=100))
-    calc.plot_umi_frequencies(umi_3p_corr)
-
+    #print(umi_5p_list)
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=500))
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_correction_dict).keys()), sample_size=500))
+    calc.plot_umi_frequencies(umi_5p_list)
     
-
-
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_list).keys()), sample_size=100))
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_correction_dict).keys()), sample_size=100))
+    calc.plot_umi_frequencies(umi_3p_list)
+    
+    #logger.log_message(f"UMI Pair Dictionary: {umi_pair_dict}")
+    calc.plot_unique_3p_per_5p(umi_pair_dict)
 
 def umi_correction(umi_list):
     umi_clusterer = UMIClusterer(cluster_method="adjacency") 
