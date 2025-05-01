@@ -1,9 +1,48 @@
-# belt
- BalazsLab Error-correction Longread Tools
+BELT - BalazsLab Error-correction Longread Tools
 
-##Extract Function
-How to run this function
+BELT is a toolkit designed for processing and analyzing long-read sequencing data. It provides functionality for extracting reads based on motifs and UMIs (Unique Molecular Identifiers), grouping reads by UMIs, and analyzing UMI distributions.
 
+## Features
+- **Extract Reads**: Extracts reads from FASTQ files based on 5' and 3' motifs and UMIs.
+- **Group Reads by UMIs**: Groups reads by their 5' UMI sequences and outputs UMI-specific BAM files.
+- **Analyze UMI Hamming Distances**: Calculates and visualizes the distribution of Hamming distances between UMIs.
+
+---
+
+## Installation
+1. Clone the repository:
+'''
+git clone https://github.com/adamn102/belt
+'''
+
+2. Install dependencies, and set up environment
+'''
+echo "Pray to anaconda gods,May the conda be on your side, and pip away from you!"
+conda env create -f env.yaml
+'''
+
+If you already have a enverioment named belt then do this first:
+if you are on the belt environment deactoivate it first
+'''
+conda deactivate
+'''
+then
+'''
+conda remove -n belt --all
+'''
+
+
+
+
+
+
+
+
+
+
+
+### Old Notes 
+TODO: sort through these later
 '''
 python3 belt.py extract input.fastq --config config.yaml
 '''
