@@ -15,7 +15,8 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     no_umi3p = 0
     no_umi = 0
 
-    # Advanced UMI extraction, and corrections metrics
+    # Advanced UMI extraction, and corrections metrics 
+    #TODO: add these counters to the correct places
     umi5p_num_before = 0
     umi3p_num_before = 0
     umi5p_num_after = 0
@@ -26,6 +27,10 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     read_name = []
     umi_5p_list = []
     umi_3p_list = []
+
+    umi_5p_corr = []
+    umi_3p_corr = []
+
 
     with open(input_fastq, 'r') as in_handle:
         for record in SeqIO.parse(in_handle, "fastq"):
@@ -96,7 +101,9 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
 
             # Correct UMIs
             umi_5p = umi_5p_correction_dict[umi_5p_list[i]]
+            umi_5p_corr.append(umi_5p)
             umi_3p = umi_3p_correction_dict[umi_3p_list[i]]
+            umi_3p_corr.append(umi_3p)
 
             # Append corrected UMIs to the read name
             new_record = read[i]
@@ -108,19 +115,18 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     logger.extraction_log(input_fastq, output_fastq, written, skipped, no_umi5p, no_umi3p, no_umi)
     calc = calculator()
     # Calculate hamming distances
-    print(umi_5p_list)
     calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=100))
-    #calc.plot_hamming_distances(calc.calculate_hamming_distances(umi_3p_list, sample_size=100))
-    
-    print(list(umi_5p_correction_dict.keys()))
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(umi_5p_correction_dict.keys()), sample_size=100))
-    #calc.plot_hamming_distances(calc.calculate_hamming_distances(umi_3p, sample_size=100))
+    calc.plot_umi_frequencies(umi_5p_corr)
+
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_list).keys()), sample_size=100))
+    calc.plot_umi_frequencies(umi_3p_corr)
+
     
 
 
 
 def umi_correction(umi_list):
-    umi_clusterer = UMIClusterer(cluster_method="adjacency")
+    umi_clusterer = UMIClusterer(cluster_method="adjacency") 
     umi_counter = Counter(umi_list)
     values = list(umi_counter.values())
     keys = list(umi_counter.keys())

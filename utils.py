@@ -81,8 +81,6 @@ class calculator():
         # Sort by distance (keys)
         distances = sorted(distance_dict.keys())
         frequencies = [distance_dict[d] for d in distances]
-        print(distances)
-        print(frequencies)
 
                 # Plot
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -96,6 +94,34 @@ class calculator():
         # Add labels on top of bars
         ax.bar_label(bars, padding=3)
 
+        plt.tight_layout()
+        plt.show()
+
+    def plot_umi_frequencies(self, umi_list):
+        """
+        This function generates a line graph of UMI frequencies from most frequent to least frequent.
+        :param umi_list: List of UMIs (strings)
+        :return: None
+        """
+        # Count the frequency of each UMI
+        umi_counts = Counter(umi_list)
+        
+        # Sort UMIs by frequency in descending order
+        sorted_umis = sorted(umi_counts.items(), key=lambda x: x[1], reverse=True)
+        umi_labels, frequencies = zip(*sorted_umis)
+        
+        # Plot the line graph
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.plot(range(len(frequencies)), frequencies, marker='o', linestyle='-', color='blue')
+        ax.set_xlabel('UMIs (sorted by frequency)', fontsize=12)
+        ax.set_ylabel('Frequency', fontsize=12)
+        ax.set_title('UMI Frequency Distribution', fontsize=14)
+        ax.set_yscale('log')
+        ax.grid(axis='y', alpha=0.7)
+        
+        # Optional: Limit the x-axis to show only the top N UMIs
+        ax.set_xlim(0, len(frequencies))
+        
         plt.tight_layout()
         plt.show()
 
