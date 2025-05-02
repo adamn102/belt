@@ -2,5 +2,5 @@ output: "output_files/reads_after_extract.fastq"
 min_read_length: 3900
 motif5: "ACCGTCGGAT"
 motif3: "TGTTGGCCTC"
-fuzzy: 3
+fuzzy: 2
 window: 100

@@ -4,6 +4,7 @@ from difflib import SequenceMatcher
 from utils import log, calculator
 from umi_tools import UMIClusterer
 from collections import Counter
+import math
 
 def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p, fuzzy, window):
     logger = log()
@@ -47,7 +48,7 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
                     umi_5p_start = seq.find(matched_5p) + len(matched_5p)
                     umi_3p_end = seq.rfind(matched_3p)
                     umi_5p = seq[umi_5p_start:umi_5p_start + 12] if umi_3p_end - umi_5p_start >= 12 else None
-                    umi_3p = seq[umi_3p_end - 13:umi_3p_end+1] if umi_3p_end - umi_5p_start >= 12 else None
+                    umi_3p = seq[umi_3p_end - 12:umi_3p_end] if umi_3p_end - umi_5p_start >= 12 else None
                     new_record = record
                 else:
                     # Check for motifs in the reverse complement sequence
@@ -59,7 +60,7 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
                         umi_5p_start = rc_seq.find(matched_5p) + len(matched_5p)
                         umi_3p_end = rc_seq.rfind(matched_3p)
                         umi_5p = rc_seq[umi_5p_start:umi_5p_start + 12] if umi_3p_end - umi_5p_start >= 12 else None
-                        umi_3p = rc_seq[umi_3p_end - 12:umi_3p_end+2] if umi_3p_end - umi_5p_start >= 12 else None
+                        umi_3p = rc_seq[umi_3p_end - 12:umi_3p_end] if umi_3p_end - umi_5p_start >= 12 else None
                         new_record = record
                     else:
                         skipped += 1
@@ -97,67 +98,117 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
         # count number of each 5p_umi
         umi_5p_correction_dict = umi_correction(umi_5p_list)
         umi_3p_correction_dict = umi_correction(umi_3p_list)
-
+        print(umi_5p_correction_dict)
+        print(len(umi_5p_correction_dict.keys()))
+        print(len(umi_5p_list))
 
         
     with open(output_fastq, 'w') as out_handle:
         for i in range(len(read_name)):
+            # Map uncorrected UMIs to their corrected counterparts
+            corrected_umi_5p = next(
+                (corrected for corrected, uncorrected_list in umi_5p_correction_dict.items() if umi_5p_list[i] in uncorrected_list),
+                None
+            )
+            corrected_umi_3p = next(
+                (corrected for corrected, uncorrected_list in umi_3p_correction_dict.items() if umi_3p_list[i] in uncorrected_list),
+                None
+            )
 
-            # Correct UMIs
-            umi_5p = umi_5p_correction_dict[umi_5p_list[i]]
-            umi_3p = umi_3p_correction_dict[umi_3p_list[i]]
+            # Handle cases where no corrected UMI is found
+            if corrected_umi_5p is None or corrected_umi_3p is None:
+                skipped += 1
+                continue
 
             # Append corrected UMIs to the read name
             new_record = read[i]
-            new_record.id += f":UMI5-{umi_5p}-UMI3-{umi_3p}"
+            new_record.id += f":UMI5-{corrected_umi_5p}-UMI3-{corrected_umi_3p}"
             new_record.description = new_record.id
 
+            # Write the read to the general output file
             SeqIO.write(new_record, out_handle, "fastq")
             written += 1
 
-            # Write to a separate file for each umi_5p
-            umi_5p_filename = f"{output_fastq.rsplit('.', 1)[0]}_UMI5_{umi_5p}.fastq"
+            # Write the read to a separate file for each corrected umi_5p
+            umi_5p_filename = f"{output_fastq.rsplit('.', 1)[0]}_UMI5_{corrected_umi_5p}.fastq"
             with open(umi_5p_filename, 'a') as umi_5p_handle:
                 SeqIO.write(new_record, umi_5p_handle, "fastq")
+    
+
 
 
     logger.extraction_log(input_fastq, output_fastq, written, skipped, no_umi5p, no_umi3p, no_umi)
-    # Calculate the percentage of strings in umi_3p_list that start with 'A'
-    num_start_with_a = sum(1 for umi in umi_3p_list if umi.startswith('A'))
-    percentage_start_with_a = (num_start_with_a / len(umi_3p_list)) * 100 if umi_3p_list else 0
+    # Calculate percentages for 3' UMIs
+    num_start_with_a_3p = sum(1 for umi in umi_3p_list if umi.startswith('A'))
+    num_start_with_g_3p = sum(1 for umi in umi_3p_list if umi.startswith('G'))
+    num_start_with_t_3p = sum(1 for umi in umi_3p_list if umi.startswith('T'))
+    num_start_with_c_3p = sum(1 for umi in umi_3p_list if umi.startswith('C'))
 
-    # Print the result
-    print(f"Percentage of 3' UMIs starting with 'A': {percentage_start_with_a:.2f}%")
+    percentage_start_with_a_3p = (num_start_with_a_3p / len(umi_3p_list)) * 100 if umi_3p_list else 0
+    percentage_start_with_g_3p = (num_start_with_g_3p / len(umi_3p_list)) * 100 if umi_3p_list else 0
+    percentage_start_with_t_3p = (num_start_with_t_3p / len(umi_3p_list)) * 100 if umi_3p_list else 0
+    percentage_start_with_c_3p = (num_start_with_c_3p / len(umi_3p_list)) * 100 if umi_3p_list else 0
+
+    average_length_3p = sum(len(umi) for umi in umi_3p_list) / len(umi_3p_list) if umi_3p_list else 0
+
+    # Calculate percentages for 5' UMIs
+    num_start_with_a_5p = sum(1 for umi in umi_5p_list if umi.startswith('A'))
+    num_start_with_g_5p = sum(1 for umi in umi_5p_list if umi.startswith('G'))
+    num_start_with_t_5p = sum(1 for umi in umi_5p_list if umi.startswith('T'))
+    num_start_with_c_5p = sum(1 for umi in umi_5p_list if umi.startswith('C'))
+
+    percentage_start_with_a_5p = (num_start_with_a_5p / len(umi_5p_list)) * 100 if umi_5p_list else 0
+    percentage_start_with_g_5p = (num_start_with_g_5p / len(umi_5p_list)) * 100 if umi_5p_list else 0
+    percentage_start_with_t_5p = (num_start_with_t_5p / len(umi_5p_list)) * 100 if umi_5p_list else 0
+    percentage_start_with_c_5p = (num_start_with_c_5p / len(umi_5p_list)) * 100 if umi_5p_list else 0
+
+    average_length_5p = sum(len(umi) for umi in umi_5p_list) / len(umi_5p_list) if umi_5p_list else 0
+
+    # Print the results
+    print("3' UMI Statistics:")
+    print(f"Percentage of 3' UMIs starting with 'A': {percentage_start_with_a_3p:.2f}%")
+    print(f"Percentage of 3' UMIs starting with 'G': {percentage_start_with_g_3p:.2f}%")
+    print(f"Percentage of 3' UMIs starting with 'T': {percentage_start_with_t_3p:.2f}%")
+    print(f"Percentage of 3' UMIs starting with 'C': {percentage_start_with_c_3p:.2f}%")
+    print(f"Average length of 3' UMIs: {average_length_3p:.2f}")
+
+    print("\n5' UMI Statistics:")
+    print(f"Percentage of 5' UMIs starting with 'A': {percentage_start_with_a_5p:.2f}%")
+    print(f"Percentage of 5' UMIs starting with 'G': {percentage_start_with_g_5p:.2f}%")
+    print(f"Percentage of 5' UMIs starting with 'T': {percentage_start_with_t_5p:.2f}%")
+    print(f"Percentage of 5' UMIs starting with 'C': {percentage_start_with_c_5p:.2f}%")
+    print(f"Average length of 5' UMIs: {average_length_5p:.2f}")
 
     calc = calculator()
     # Calculate hamming distances
     #print(umi_5p_list)
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=500))
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_correction_dict).keys()), sample_size=500))
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=100))
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_correction_dict).keys()), sample_size=20))
     calc.plot_umi_frequencies(umi_5p_list)
     
     calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_list).keys()), sample_size=100))
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_correction_dict).keys()), sample_size=100))
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_correction_dict).keys()), sample_size=20))
     calc.plot_umi_frequencies(umi_3p_list)
     
     #logger.log_message(f"UMI Pair Dictionary: {umi_pair_dict}")
     calc.plot_unique_3p_per_5p(umi_pair_dict)
 
 def umi_correction(umi_list):
-    umi_clusterer = UMIClusterer(cluster_method="adjacency") 
+    umi_clusterer = UMIClusterer(cluster_method="directional") 
     umi_counter = Counter(umi_list)
     values = list(umi_counter.values())
     keys = list(umi_counter.keys())
     bit_keys = [umi.encode("utf-8") for umi in keys]
     umi_count_dict = dict(zip(bit_keys, values))
-    clustered_umis = umi_clusterer(umi_count_dict, threshold=2)
+    clustered_umis = umi_clusterer(umi_count_dict, threshold=4)
 
+    # Create a dictionary with corrected UMIs as keys and uncorrected UMIs as values (list)
     umi_corrected_dict = {}
     for cluster in clustered_umis:
-        primary_umi = cluster[0].decode('utf-8')
-        for umi in cluster:
-            umi_corrected_dict[umi.decode('utf-8')] = primary_umi
-    return umi_corrected_dict 
+        primary_umi = cluster[0].decode('utf-8')  # The primary (corrected) UMI
+        umi_corrected_dict[primary_umi] = [umi.decode('utf-8') for umi in cluster]  # All UMIs in the cluster
+
+    return umi_corrected_dict
 
 
 
