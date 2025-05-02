@@ -131,16 +131,19 @@ class calculator():
         :param umi_pair_dict: Dictionary where keys are 5' UMIs and values are lists of associated 3' UMIs
         :return: None
         """
-        # Calculate the number of unique 3' UMIs for each 5' UMI
-        unique_3p_counts = {umi_5p: len(set(umi_3p_list)) for umi_5p, umi_3p_list in umi_pair_dict.items()}
+        # Calculate the percentage of unique 3' UMIs for each 5' UMI
+        unique_3p_percentage = {
+            umi_5p: (len(set(umi_3p_list)) / len(umi_3p_list)) * 100
+            for umi_5p, umi_3p_list in umi_pair_dict.items()
+        }
         
-        # Sort the 5' UMIs by the number of unique 3' UMIs in descending order
-        sorted_umis = sorted(unique_3p_counts.items(), key=lambda x: x[1], reverse=True)
-        umi_5p_labels, unique_counts = zip(*sorted_umis)
+        # Sort the 5' UMIs by the percentage of unique 3' UMIs in descending order
+        sorted_umis = sorted(unique_3p_percentage.items(), key=lambda x: x[1], reverse=True)
+        umi_5p_labels, unique_percentages = zip(*sorted_umis)
         
         # Plot the bar graph
         fig, ax = plt.subplots(figsize=(12, 6))
-        ax.bar(umi_5p_labels, unique_counts, color='skyblue', edgecolor='black')
+        ax.bar(umi_5p_labels, unique_percentages, color='skyblue', edgecolor='black')
         ax.set_xlabel("5' UMIs", fontsize=12)
         ax.set_ylabel("Number of Unique 3' UMIs", fontsize=12)
         ax.set_title("Number of Unique 3' UMIs per 5' UMI", fontsize=14)

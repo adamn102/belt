@@ -59,7 +59,7 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
                         umi_5p_start = rc_seq.find(matched_5p) + len(matched_5p)
                         umi_3p_end = rc_seq.rfind(matched_3p)
                         umi_5p = rc_seq[umi_5p_start:umi_5p_start + 12] if umi_3p_end - umi_5p_start >= 12 else None
-                        umi_3p = rc_seq[umi_3p_end - 13:umi_3p_end+1] if umi_3p_end - umi_5p_start >= 12 else None
+                        umi_3p = rc_seq[umi_3p_end - 12:umi_3p_end+2] if umi_3p_end - umi_5p_start >= 12 else None
                         new_record = record
                     else:
                         skipped += 1
@@ -99,7 +99,7 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
         umi_3p_correction_dict = umi_correction(umi_3p_list)
 
 
-
+        
     with open(output_fastq, 'w') as out_handle:
         for i in range(len(read_name)):
 
@@ -114,7 +114,21 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
 
             SeqIO.write(new_record, out_handle, "fastq")
             written += 1
+
+            # Write to a separate file for each umi_5p
+            umi_5p_filename = f"{output_fastq.rsplit('.', 1)[0]}_UMI5_{umi_5p}.fastq"
+            with open(umi_5p_filename, 'a') as umi_5p_handle:
+                SeqIO.write(new_record, umi_5p_handle, "fastq")
+
+
     logger.extraction_log(input_fastq, output_fastq, written, skipped, no_umi5p, no_umi3p, no_umi)
+    # Calculate the percentage of strings in umi_3p_list that start with 'A'
+    num_start_with_a = sum(1 for umi in umi_3p_list if umi.startswith('A'))
+    percentage_start_with_a = (num_start_with_a / len(umi_3p_list)) * 100 if umi_3p_list else 0
+
+    # Print the result
+    print(f"Percentage of 3' UMIs starting with 'A': {percentage_start_with_a:.2f}%")
+
     calc = calculator()
     # Calculate hamming distances
     #print(umi_5p_list)

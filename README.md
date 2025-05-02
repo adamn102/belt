@@ -22,11 +22,11 @@ conda env create -f env.yaml
 '''
 
 If you already have a enverioment named belt then do this first:
-if you are on the belt environment deactoivate it first
+If you are on the belt environment deactoivate it first
 '''
 conda deactivate
 '''
-then
+
 '''
 conda remove -n belt --all
 '''
@@ -56,3 +56,5 @@ python3 belt.py extract reads.fastq --config config.yaml --fuzzy 4
 Note to nartsav: /Users/nomur/GitHub/test_data_belt/test_data/filtered_fastq_files/NL43-test.fastq
 
 python3 belt.py extract /Users/nomur/GitHub/test_data_belt/test_data/raw_fastq_files/NL43-test.fastq --config config.yaml
+
+python3 belt.py extract /Users/nartsavomur/Desktop/tmp_server_files/tests/test_data/raw_fastq_files/NL43-test.fastq --config config.yaml
