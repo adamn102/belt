@@ -5,6 +5,7 @@ from utils import log, calculator
 from umi_tools import UMIClusterer
 from collections import Counter
 import math
+import os
 
 def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p, fuzzy, window):
     logger = log()
@@ -98,7 +99,8 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
         # count number of each 5p_umi
         umi_5p_correction_dict = umi_correction(umi_5p_list)
         umi_3p_correction_dict = umi_correction(umi_3p_list)
-        print(umi_5p_correction_dict)
+
+
         print(len(umi_5p_correction_dict.keys()))
         print(len(umi_5p_list))
 
@@ -129,10 +131,6 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
             SeqIO.write(new_record, out_handle, "fastq")
             written += 1
 
-            # Write the read to a separate file for each corrected umi_5p
-            umi_5p_filename = f"{output_fastq.rsplit('.', 1)[0]}_UMI5_{corrected_umi_5p}.fastq"
-            with open(umi_5p_filename, 'a') as umi_5p_handle:
-                SeqIO.write(new_record, umi_5p_handle, "fastq")
     
 
 
@@ -180,18 +178,48 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     print(f"Average length of 5' UMIs: {average_length_5p:.2f}")
 
     calc = calculator()
+    clustered_umi_3p = correctUMIS(umi_3p_list, umi_3p_correction_dict)
+    clustered_umi_5p = correctUMIS(umi_5p_list, umi_5p_correction_dict)
+
+    
+    corrected_umi_pair_dict = {}
+    for umi_5p, umi_3p_array in umi_pair_dict.items():
+        # Correct the 5' UMI
+        corrected_umi_5p = next(
+            (corrected for corrected, uncorrected_list in umi_5p_correction_dict.items() if umi_5p in uncorrected_list),
+            umi_5p  # Default to the original UMI if no correction is found
+        )
+
+        # Correct the 3' UMIs
+        corrected_umi_3p_list = [
+            next(
+                (corrected for corrected, uncorrected_list in umi_3p_correction_dict.items() if umi_3p in uncorrected_list),
+                umi_3p  # Default to the original UMI if no correction is found
+            )
+            for umi_3p in umi_3p_array
+        ]
+
+        # Add the corrected 5' UMI and its associated corrected 3' UMIs to the new dictionary
+        if corrected_umi_5p not in corrected_umi_pair_dict:
+            corrected_umi_pair_dict[corrected_umi_5p] = []
+        corrected_umi_pair_dict[corrected_umi_5p].extend(corrected_umi_3p_list)
+
+
+
     # Calculate hamming distances
     #print(umi_5p_list)
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=100))
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=20))
     calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_correction_dict).keys()), sample_size=20))
-    calc.plot_umi_frequencies(umi_5p_list)
-    
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_list).keys()), sample_size=100))
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_correction_dict).keys()), sample_size=20))
-    calc.plot_umi_frequencies(umi_3p_list)
+    calc.plot_umi_frequencies(clustered_umi_5p)
+    print(len(umi_3p_list))
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_list).keys()), sample_size=10))
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_correction_dict).keys()), sample_size=10))
+    calc.plot_umi_frequencies(clustered_umi_3p)
     
     #logger.log_message(f"UMI Pair Dictionary: {umi_pair_dict}")
-    calc.plot_unique_3p_per_5p(umi_pair_dict)
+    calc.plot_unique_3p_per_5p(corrected_umi_pair_dict)
+    #print(corrected_umi_pair_dict["CAACCGCAGGCT"])
+    separate_fastq_by_umi5("output_files/reads_after_extract.fastq", "output_files/UMI5_separated")
 
 def umi_correction(umi_list):
     umi_clusterer = UMIClusterer(cluster_method="directional") 
@@ -200,7 +228,7 @@ def umi_correction(umi_list):
     keys = list(umi_counter.keys())
     bit_keys = [umi.encode("utf-8") for umi in keys]
     umi_count_dict = dict(zip(bit_keys, values))
-    clustered_umis = umi_clusterer(umi_count_dict, threshold=4)
+    clustered_umis = umi_clusterer(umi_count_dict, threshold=3)
 
     # Create a dictionary with corrected UMIs as keys and uncorrected UMIs as values (list)
     umi_corrected_dict = {}
@@ -209,8 +237,6 @@ def umi_correction(umi_list):
         umi_corrected_dict[primary_umi] = [umi.decode('utf-8') for umi in cluster]  # All UMIs in the cluster
 
     return umi_corrected_dict
-
-
 
 def is_fuzzy_match(read_seq, motif, max_mismatches):
     best_match = None
@@ -239,3 +265,45 @@ def lengthCheck(read, min_length):# boolean operator to check is the individual 
     else:
         False
 
+def correctUMIS(umi_list, correction_dict):
+
+    corrected_umi_list = [
+        next(
+            (corrected for corrected, uncorrected_list in correction_dict.items() if umi in uncorrected_list),
+            umi  # Default to the original UMI if no correction is found
+        )
+        for umi in umi_list
+    ]
+    return corrected_umi_list
+
+def separate_fastq_by_umi5(input_fastq, output_dir):
+    """
+    Separates a FASTQ file into multiple FASTQ files based on the UMI5 in the read name.
+    
+    :param input_fastq: Path to the input FASTQ file.
+    :param output_dir: Directory where the separated FASTQ files will be saved.
+    """
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    umi5_files = {}
+
+    # Parse the input FASTQ file
+    for record in SeqIO.parse(input_fastq, "fastq"):
+        # Extract UMI5 from the read name
+        umi5 = None
+        if "UMI5-" in record.id:
+            umi5 = record.id.split("UMI5-")[1].split("-UMI3")[0]
+
+        if umi5:
+            # Create a new file for this UMI5 if it doesn't exist
+            if umi5 not in umi5_files:
+                umi5_filename = os.path.join(output_dir, f"UMI5_{umi5}.fastq")
+                umi5_files[umi5] = open(umi5_filename, 'w')
+
+            # Write the record to the corresponding UMI5 file
+            SeqIO.write(record, umi5_files[umi5], "fastq")
+
+    # Close all open files
+    for file in umi5_files.values():
+        file.close()
