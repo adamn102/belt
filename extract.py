@@ -217,7 +217,8 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     calc.plot_umi_frequencies(clustered_umi_3p, "output_files/3p_UMI_freq.png")
     
     #logger.log_message(f"UMI Pair Dictionary: {umi_pair_dict}")
-    calc.plot_unique_3p_per_5p(corrected_umi_pair_dict, "output_files/concordance.png")
+    print(output_fastq)
+    calc.plot_unique_3p_per_5p(output_fastq, "output_files/concordance.png")
     #print(corrected_umi_pair_dict["CAACCGCAGGCT"])
     separate_fastq_by_umi5("output_files/reads_after_extract.fastq", "output_files/UMI5_separated")
     logger.write_log("output_files/log.log")
@@ -229,7 +230,7 @@ def umi_correction(umi_list):
     keys = list(umi_counter.keys())
     bit_keys = [umi.encode("utf-8") for umi in keys]
     umi_count_dict = dict(zip(bit_keys, values))
-    clustered_umis = umi_clusterer(umi_count_dict, threshold=3)
+    clustered_umis = umi_clusterer(umi_count_dict, threshold=2)
 
     # Create a dictionary with corrected UMIs as keys and uncorrected UMIs as values (list)
     umi_corrected_dict = {}

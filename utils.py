@@ -141,31 +141,48 @@ class calculator():
         plt.tight_layout()
         plt.savefig(output_path)
 
-    def plot_unique_3p_per_5p(self, umi_pair_dict, output_path="output_files/concordance.png"):
+    def plot_unique_3p_per_5p(self, input_fastq, output_path="output_files/concordance.png"):
         """
-        This function generates a bar graph showing the number of unique 3' UMIs for each 5' UMI.
-        :param umi_pair_dict: Dictionary where keys are 5' UMIs and values are lists of associated 3' UMIs
+        This function generates a bar graph showing the number of unique 3' UMIs for each 5' UMI
+        by extracting UMIs directly from the read names in a FASTQ file.
+        
+        :param input_fastq: Path to the input FASTQ file.
+        :param output_path: Path to save the output plot.
         :return: None
         """
+        from Bio import SeqIO
+        from collections import defaultdict
+        input_fastq = input_fastq
+
+        # Dictionary to store 5' UMIs as keys and associated 3' UMIs as values
+        umi_pair_dict = defaultdict(list)
+
+        # Parse the FASTQ file and extract UMIs from read names
+        for record in SeqIO.parse(input_fastq, "fastq"):
+            if "UMI5-" in record.id and "-UMI3-" in record.id:
+                umi_5p = record.id.split("UMI5-")[1].split("-UMI3")[0]
+                umi_3p = record.id.split("-UMI3-")[1]
+                umi_pair_dict[umi_5p].append(umi_3p)
+
         # Calculate the percentage of unique 3' UMIs for each 5' UMI
         unique_3p_percentage = {
             umi_5p: (len(set(umi_3p_list)) / len(umi_3p_list)) * 100
             for umi_5p, umi_3p_list in umi_pair_dict.items()
         }
-        
+
         # Sort the 5' UMIs by the percentage of unique 3' UMIs in descending order
         sorted_umis = sorted(unique_3p_percentage.items(), key=lambda x: x[1], reverse=True)
-        umi_5p_labels, unique_percentages = zip(*sorted_umis)
-        
+        umi_5p_labels, unique_percentages = zip(*sorted_umis) if sorted_umis else ([], [])
+
         # Plot the bar graph
         fig, ax = plt.subplots(figsize=(12, 6))
         ax.bar(umi_5p_labels, unique_percentages, color='skyblue', edgecolor='black')
         ax.set_xlabel("5' UMIs", fontsize=12)
-        ax.set_ylabel("Number of Unique 3' UMIs", fontsize=12)
-        ax.set_title("Number of Unique 3' UMIs per 5' UMI", fontsize=14)
+        ax.set_ylabel("Percentage of Unique 3' UMIs", fontsize=12)
+        ax.set_title("Percentage of Unique 3' UMIs per 5' UMI", fontsize=14)
         ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # Hide x-axis labels for clarity
         ax.grid(axis='y', alpha=0.7)
-        
+
         plt.tight_layout()
         plt.savefig(output_path)
         
