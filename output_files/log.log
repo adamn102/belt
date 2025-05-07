@@ -1,0 +1,12 @@
+Log initialized.
+[BELT][05/07/2025, 12:30:54] Extracting reads from /Users/nomur/GitHub/test_data_belt/test_data/raw_fastq_files/NL43-test.fastq
+[BELT][05/07/2025, 12:30:54] Outputting to output_files/reads_after_extract.fastq
+[BELT][05/07/2025, 12:30:56] Extraction completed.
+Input file: /Users/nomur/GitHub/test_data_belt/test_data/raw_fastq_files/NL43-test.fastq
+Output file: output_files/reads_after_extract.fastq
+Reads written: 2729
+Reads skipped: 2015
+Reads with no 5' UMI: 0
+Reads with no 3' UMI: 0
+Reads with no UMIs: 0
+

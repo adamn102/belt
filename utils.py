@@ -35,6 +35,22 @@ class log:
         # Append the log message to the log history
         self.log_history.append(msg)
 
+    def write_log(self, output_file):
+        """
+        This function writes the log history to a file
+        :param output_file: Output file name
+        :return: None
+        """
+        with open(output_file, 'w') as f:
+            for line in self.log_history:
+                f.write(line + '\n')
+        print(f"Log written to {output_file}")
+        self.log_history.append(f"Log written to {output_file}")
+        # Add a timestamp to the log
+        current_time_str = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
+        self.log_history.append(f"[BELT][{current_time_str}] Log written to {output_file}")
+
+     
 class calculator():
 
     def __init__(self):
@@ -72,7 +88,7 @@ class calculator():
         out_df = pd.DataFrame({'UMI 1': umi_1, 'UMI 2': umi_2, 'Distance': distances})
         return Counter(distances)    
     
-    def plot_hamming_distances(self,distance_dict):
+    def plot_hamming_distances(self,distance_dict,output_path="output_files/hamming_distances.png"):
         """
         This function plots the hamming distances
         :param distances: List of hamming distances
@@ -95,9 +111,9 @@ class calculator():
         ax.bar_label(bars, padding=3)
 
         plt.tight_layout()
-        plt.show()
+        plt.savefig(output_path)
 
-    def plot_umi_frequencies(self, umi_list):
+    def plot_umi_frequencies(self, umi_list, output_path="output_files/umi_freqs.png"):
         """
         This function generates a line graph of UMI frequencies from most frequent to least frequent.
         :param umi_list: List of UMIs (strings)
@@ -123,9 +139,9 @@ class calculator():
         ax.set_xlim(0, len(frequencies))
         
         plt.tight_layout()
-        plt.show()
+        plt.savefig(output_path)
 
-    def plot_unique_3p_per_5p(self, umi_pair_dict):
+    def plot_unique_3p_per_5p(self, umi_pair_dict, output_path="output_files/concordance.png"):
         """
         This function generates a bar graph showing the number of unique 3' UMIs for each 5' UMI.
         :param umi_pair_dict: Dictionary where keys are 5' UMIs and values are lists of associated 3' UMIs
@@ -151,6 +167,6 @@ class calculator():
         ax.grid(axis='y', alpha=0.7)
         
         plt.tight_layout()
-        plt.show()
+        plt.savefig(output_path)
         
 
