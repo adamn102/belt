@@ -11,25 +11,26 @@ BELT is a toolkit designed for processing and analyzing long-read sequencing dat
 
 ## Installation
 1. Clone the repository:
-'''
+```
 git clone https://github.com/adamn102/belt
-'''
+```
 
 2. Install dependencies, and set up environment
-'''
-echo "Pray to anaconda gods,May the conda be on your side, and pip away from you!"
-conda env create -f env.yaml
-'''
+```
+echo "Pray to anaconda gods, May the conda be on your side, and pip away from you!"
+conda env create -f [env.yaml](http://_vscodecontentref_/0)
+```
 
 If you already have a enverioment named belt then do this first:
 If you are on the belt environment deactoivate it first
-'''
-conda deactivate
-'''
 
-'''
+```
+conda deactivate
+```
+
+```
 conda remove -n belt --all
-'''
+```
 
 
 
