@@ -208,12 +208,12 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
 
     # Calculate hamming distances
     #print(umi_5p_list)
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=20),"output_files/5p_preCpluster_hamming_distances.png")
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_correction_dict).keys()), sample_size=20),"output_files/5p_postCluster_hamming_distances.png")
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=50),"output_files/5p_preCpluster_hamming_distances.png")
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_correction_dict).keys()), sample_size=50),"output_files/5p_postCluster_hamming_distances.png")
     calc.plot_umi_frequencies(clustered_umi_5p, "output_files/5p_UMI_freq.png")
  
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_list).keys()), sample_size=20),"output_files/3p_preCpluster_hamming_distances.png")
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_correction_dict).keys()), sample_size=20),"output_files/3p_postCluster_hamming_distances.png")
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_list).keys()), sample_size=50),"output_files/3p_preCpluster_hamming_distances.png")
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_correction_dict).keys()), sample_size=50),"output_files/3p_postCluster_hamming_distances.png")
     calc.plot_umi_frequencies(clustered_umi_3p, "output_files/3p_UMI_freq.png")
     
     #logger.log_message(f"UMI Pair Dictionary: {umi_pair_dict}")
@@ -221,6 +221,8 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     calc.plot_unique_3p_per_5p(output_fastq, "output_files/concordance.png")
     #print(corrected_umi_pair_dict["CAACCGCAGGCT"])
     separate_fastq_by_umi5("output_files/reads_after_extract.fastq", "output_files/UMI5_separated")
+    calc.plot_most_frequent_3p_percentage_per_5p(output_fastq, "output_files/concordance2.png")
+    calc.plot_most_frequent_3p_percentage_and_count_per_5p(output_fastq, "output_files/concordance3.png")
     logger.write_log("output_files/log.log")
 
 def umi_correction(umi_list):

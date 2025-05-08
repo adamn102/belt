@@ -185,5 +185,115 @@ class calculator():
 
         plt.tight_layout()
         plt.savefig(output_path)
+
+    def plot_most_frequent_3p_percentage_per_5p(self, input_fastq, output_path="output_files/concordance.png"):
+        """
+        This function generates a bar graph showing the percentage of the most frequent 3' UMI
+        for each 5' UMI by extracting UMIs directly from the read names in a FASTQ file.
+        
+        :param input_fastq: Path to the input FASTQ file.
+        :param output_path: Path to save the output plot.
+        :return: None
+        """
+        from Bio import SeqIO
+        from collections import defaultdict, Counter
+
+        # Dictionary to store 5' UMIs as keys and associated 3' UMIs as values
+        umi_pair_dict = defaultdict(list)
+
+        # Parse the FASTQ file and extract UMIs from read names
+        for record in SeqIO.parse(input_fastq, "fastq"):
+            if "UMI5-" in record.id and "-UMI3-" in record.id:
+                umi_5p = record.id.split("UMI5-")[1].split("-UMI3")[0]
+                umi_3p = record.id.split("-UMI3-")[1]
+                umi_pair_dict[umi_5p].append(umi_3p)
+
+        # Calculate the percentage of the most frequent 3' UMI for each 5' UMI
+        most_frequent_3p_percentage = {}
+        for umi_5p, umi_3p_list in umi_pair_dict.items():
+            umi_3p_counts = Counter(umi_3p_list)
+            most_frequent_count = max(umi_3p_counts.values())
+            most_frequent_3p_percentage[umi_5p] = (most_frequent_count / len(umi_3p_list)) * 100
+
+        # Sort the 5' UMIs by the percentage of the most frequent 3' UMI in descending order
+        sorted_umis = sorted(most_frequent_3p_percentage.items(), key=lambda x: x[1], reverse=True)
+        umi_5p_labels, most_frequent_percentages = zip(*sorted_umis) if sorted_umis else ([], [])
+
+        # Plot the bar graph
+        fig, ax = plt.subplots(figsize=(12, 6))
+        ax.bar(umi_5p_labels, most_frequent_percentages, color='skyblue', edgecolor='black')
+        ax.set_xlabel("5' UMIs", fontsize=12)
+        ax.set_ylabel("Percentage of Most Frequent 3' UMI", fontsize=12)
+        ax.set_title("Percentage of Most Frequent 3' UMI per 5' UMI", fontsize=14)
+        ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # Hide x-axis labels for clarity
+        ax.grid(axis='y', alpha=0.7)
+
+        plt.tight_layout()
+        plt.savefig(output_path)
+
+    def plot_most_frequent_3p_percentage_and_count_per_5p(self, input_fastq, output_path="output_files/concordance.png"):
+        """
+        This function generates a combined bar and line graph:
+        - Bar graph: Percentage of the most frequent 3' UMI for each 5' UMI.
+        - Line graph: Total number of 3' UMIs for each 5' UMI.
+        
+        :param input_fastq: Path to the input FASTQ file.
+        :param output_path: Path to save the output plot.
+        :return: None
+        """
+        from Bio import SeqIO
+        from collections import defaultdict, Counter
+
+        # Dictionary to store 5' UMIs as keys and associated 3' UMIs as values
+        umi_pair_dict = defaultdict(list)
+
+        # Parse the FASTQ file and extract UMIs from read names
+        for record in SeqIO.parse(input_fastq, "fastq"):
+            if "UMI5-" in record.id and "-UMI3-" in record.id:
+                umi_5p = record.id.split("UMI5-")[1].split("-UMI3")[0]
+                umi_3p = record.id.split("-UMI3-")[1]
+                umi_pair_dict[umi_5p].append(umi_3p)
+
+        # Calculate the percentage of the most frequent 3' UMI and the total count of 3' UMIs for each 5' UMI
+        most_frequent_3p_percentage = {}
+        total_3p_counts = {}
+        for umi_5p, umi_3p_list in umi_pair_dict.items():
+            umi_3p_counts = Counter(umi_3p_list)
+            most_frequent_count = max(umi_3p_counts.values())
+            most_frequent_3p_percentage[umi_5p] = (most_frequent_count / len(umi_3p_list)) * 100
+            total_3p_counts[umi_5p] = len(umi_3p_list)
+
+        # Sort the 5' UMIs by the percentage of the most frequent 3' UMI in descending order
+        sorted_umis = sorted(most_frequent_3p_percentage.items(), key=lambda x: x[1], reverse=True)
+        umi_5p_labels, most_frequent_percentages = zip(*sorted_umis) if sorted_umis else ([], [])
+        total_counts_sorted = [total_3p_counts[umi_5p] for umi_5p in umi_5p_labels]
+
+        # Plot the combined graph
+        fig, ax1 = plt.subplots(figsize=(12, 6))
+
+        # Bar graph for the percentage of the most frequent 3' UMI
+        ax1.bar(umi_5p_labels, most_frequent_percentages, color='skyblue', edgecolor='black', label="Most Frequent 3' UMI (%)")
+        ax1.set_xlabel("5' UMIs", fontsize=12)
+        ax1.set_ylabel("Percentage of Most Frequent 3' UMI", fontsize=12, color='blue')
+        ax1.tick_params(axis='y', labelcolor='blue')
+        ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # Hide x-axis labels for clarity
+        ax1.grid(axis='y', alpha=0.7)
+
+        # Line graph for the total number of 3' UMIs
+        ax2 = ax1.twinx()
+        ax2.plot(umi_5p_labels, total_counts_sorted, color='red', marker='o', linestyle='-', label="Total 3' UMI Count")
+        ax2.set_ylabel("Total Number of 3' UMIs", fontsize=12, color='red')
+        ax2.set_yscale('log')  # Set the right y-axis to log scale
+        ax2.tick_params(axis='y', labelcolor='red')
+
+        # Add legends
+        ax1.legend(loc='upper left')
+        ax2.legend(loc='upper right')
+
+        # Add title
+        plt.title("Most Frequent 3' UMI Percentage and Total 3' UMI Count per 5' UMI", fontsize=14)
+
+        plt.tight_layout()
+        plt.savefig(output_path)
         
 
