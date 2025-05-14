@@ -218,12 +218,11 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     
     #logger.log_message(f"UMI Pair Dictionary: {umi_pair_dict}")
     print(output_fastq)
-    calc.plot_unique_3p_per_5p(output_fastq, "output_files/concordance.png")
     #print(corrected_umi_pair_dict["CAACCGCAGGCT"])
     separate_fastq_by_umi5("output_files/reads_after_extract.fastq", "output_files/UMI5_separated")
-    calc.plot_most_frequent_3p_percentage_per_5p(output_fastq, "output_files/concordance2.png")
-    calc.plot_most_frequent_3p_percentage_and_count_per_5p(output_fastq, "output_files/concordance3.png")
+    calc.plot_most_frequent_3p_percentage_and_count_per_5p(output_fastq, "output_files/concordance.png")
     logger.write_log("output_files/log.log")
+    calc.export_5p_3p_UMIs(output_fastq, "output_files/5p_3p_UMI_pairs.csv")
 
 def umi_correction(umi_list):
     umi_clusterer = UMIClusterer(cluster_method="directional") 
