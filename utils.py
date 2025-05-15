@@ -236,10 +236,11 @@ class calculator():
         This function generates a combined stacked bar and line graph:
         - Stacked bar graph: Percentages of the most frequent, second most frequent, and third most frequent 3' UMIs for each 5' UMI.
         - Line graph: Total number of 3' UMIs for each 5' UMI.
+        Additionally, it returns a dictionary mapping each 5' UMI to its most frequent 3' UMI.
         
         :param input_fastq: Path to the input FASTQ file.
         :param output_path: Path to save the output plot.
-        :return: None
+        :return: Dictionary mapping 5' UMIs to their most frequent 3' UMIs.
         """
         from Bio import SeqIO
         from collections import defaultdict, Counter
@@ -259,15 +260,16 @@ class calculator():
         second_most_frequent_3p_percentages = {}
         third_most_frequent_3p_percentages = {}
         total_3p_counts = {}
+        most_frequent_3p_dict = {}
 
         for umi_5p, umi_3p_list in umi_pair_dict.items():
             umi_3p_counts = Counter(umi_3p_list)
-            sorted_counts = sorted(umi_3p_counts.values(), reverse=True)
+            sorted_counts = sorted(umi_3p_counts.items(), key=lambda x: x[1], reverse=True)
 
             # Get the most frequent, second most frequent, and third most frequent counts
-            most_frequent_count = sorted_counts[0] if len(sorted_counts) > 0 else 0
-            second_most_frequent_count = sorted_counts[1] if len(sorted_counts) > 1 else 0
-            third_most_frequent_count = sorted_counts[2] if len(sorted_counts) > 2 else 0
+            most_frequent_count = sorted_counts[0][1] if len(sorted_counts) > 0 else 0
+            second_most_frequent_count = sorted_counts[1][1] if len(sorted_counts) > 1 else 0
+            third_most_frequent_count = sorted_counts[2][1] if len(sorted_counts) > 2 else 0
 
             # Calculate percentages
             total_count = len(umi_3p_list)
@@ -275,6 +277,9 @@ class calculator():
             second_most_frequent_3p_percentages[umi_5p] = (second_most_frequent_count / total_count) * 100 if total_count > 0 else 0
             third_most_frequent_3p_percentages[umi_5p] = (third_most_frequent_count / total_count) * 100 if total_count > 0 else 0
             total_3p_counts[umi_5p] = total_count
+
+            # Store the most frequent 3' UMI
+            most_frequent_3p_dict[umi_5p] = sorted_counts[0][0] if len(sorted_counts) > 0 else None
 
         # Sort the 5' UMIs by the percentage of the most frequent 3' UMI in descending order
         sorted_umis = sorted(most_frequent_3p_percentages.items(), key=lambda x: x[1], reverse=True)
@@ -314,6 +319,9 @@ class calculator():
 
         plt.tight_layout()
         plt.savefig(output_path)
+
+        # Return the dictionary of most frequent 3' UMIs
+        return most_frequent_3p_dict
 
     def export_5p_3p_UMIs(self, input_fastq, output_path="output_files/5p_3p_UMIs.csv"):
         """

@@ -208,19 +208,20 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
 
     # Calculate hamming distances
     #print(umi_5p_list)
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=50),"output_files/5p_preCpluster_hamming_distances.png")
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_correction_dict).keys()), sample_size=50),"output_files/5p_postCluster_hamming_distances.png")
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=20),"output_files/5p_preCpluster_hamming_distances.png")
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_correction_dict).keys()), sample_size=20),"output_files/5p_postCluster_hamming_distances.png")
     calc.plot_umi_frequencies(clustered_umi_5p, "output_files/5p_UMI_freq.png")
  
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_list).keys()), sample_size=50),"output_files/3p_preCpluster_hamming_distances.png")
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_correction_dict).keys()), sample_size=50),"output_files/3p_postCluster_hamming_distances.png")
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_list).keys()), sample_size=20),"output_files/3p_preCpluster_hamming_distances.png")
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_correction_dict).keys()), sample_size=20),"output_files/3p_postCluster_hamming_distances.png")
     calc.plot_umi_frequencies(clustered_umi_3p, "output_files/3p_UMI_freq.png")
     
     #logger.log_message(f"UMI Pair Dictionary: {umi_pair_dict}")
     print(output_fastq)
     #print(corrected_umi_pair_dict["CAACCGCAGGCT"])
-    separate_fastq_by_umi5("output_files/reads_after_extract.fastq", "output_files/UMI5_separated")
-    calc.plot_most_frequent_3p_percentage_and_count_per_5p(output_fastq, "output_files/concordance.png")
+    corrected_umi_pairings = calc.plot_most_frequent_3p_percentage_and_count_per_5p(output_fastq, "output_files/concordance.png")
+    separate_fastq_by_umi5("output_files/reads_after_extract.fastq", "output_files/UMI5_separated",corrected_umi_pairings)
+   
     logger.write_log("output_files/log.log")
     calc.export_5p_3p_UMIs(output_fastq, "output_files/5p_3p_UMI_pairs.csv")
 
@@ -231,7 +232,7 @@ def umi_correction(umi_list):
     keys = list(umi_counter.keys())
     bit_keys = [umi.encode("utf-8") for umi in keys]
     umi_count_dict = dict(zip(bit_keys, values))
-    clustered_umis = umi_clusterer(umi_count_dict, threshold=2)
+    clustered_umis = umi_clusterer(umi_count_dict, threshold=4)
 
     # Create a dictionary with corrected UMIs as keys and uncorrected UMIs as values (list)
     umi_corrected_dict = {}
@@ -279,12 +280,13 @@ def correctUMIS(umi_list, correction_dict):
     ]
     return corrected_umi_list
 
-def separate_fastq_by_umi5(input_fastq, output_dir):
+def separate_fastq_by_umi5(input_fastq, output_dir, corrected_umi_pairings):
     """
-    Separates a FASTQ file into multiple FASTQ files based on the UMI5 in the read name.
-    
+    Separates a FASTQ file into multiple FASTQ files based on the corrected 5' and 3' UMI pairings.
+
     :param input_fastq: Path to the input FASTQ file.
     :param output_dir: Directory where the separated FASTQ files will be saved.
+    :param corrected_umi_pairings: Dictionary mapping corrected 5' UMIs to their most frequent 3' UMIs.
     """
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -293,16 +295,23 @@ def separate_fastq_by_umi5(input_fastq, output_dir):
 
     # Parse the input FASTQ file
     for record in SeqIO.parse(input_fastq, "fastq"):
-        # Extract UMI5 from the read name
+        # Extract the corrected 5' and 3' UMIs from the read name
         umi5 = None
-        if "UMI5-" in record.id:
+        umi3 = None
+        if "UMI5-" in record.id and "-UMI3-" in record.id:
             umi5 = record.id.split("UMI5-")[1].split("-UMI3")[0]
+            umi3 = record.id.split("-UMI3-")[1]
 
-        if umi5:
+        # Check if the 5' UMI exists in the corrected pairings and matches the most frequent 3' UMI
+        if umi5 in corrected_umi_pairings and corrected_umi_pairings[umi5] == umi3:
             # Create a new file for this UMI5 if it doesn't exist
             if umi5 not in umi5_files:
-                umi5_filename = os.path.join(output_dir, f"UMI5_{umi5}.fastq")
+                umi5_filename = os.path.join(output_dir, f"UMI5_{umi5}_3p-{corrected_umi_pairings[umi5]}.fastq")
                 umi5_files[umi5] = open(umi5_filename, 'w')
+
+            # Add the most frequent 3' UMI to the read name
+            record.id += f":MostFrequent3p-{corrected_umi_pairings[umi5]}"
+            record.description = record.id
 
             # Write the record to the corresponding UMI5 file
             SeqIO.write(record, umi5_files[umi5], "fastq")

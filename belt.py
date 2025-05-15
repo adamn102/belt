@@ -66,8 +66,6 @@ def extract(input_fastq, output, min_read_length, motif5, motif3, fuzzy, window,
 
 
 # Additional commands will follow this pattern
-
-
 from group_umis import group
 
 @main.command()
