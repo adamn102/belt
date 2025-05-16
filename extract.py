@@ -48,8 +48,8 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
                 if match_5p and match_3p:
                     umi_5p_start = seq.find(matched_5p) + len(matched_5p)
                     umi_3p_end = seq.rfind(matched_3p)
-                    umi_5p = seq[umi_5p_start:umi_5p_start + 12] if umi_3p_end - umi_5p_start >= 12 else None
-                    umi_3p = seq[umi_3p_end - 12:umi_3p_end] if umi_3p_end - umi_5p_start >= 12 else None
+                    umi_5p = seq[umi_5p_start:umi_5p_start + 18] if umi_3p_end - umi_5p_start >= 18 else None
+                    umi_3p = seq[umi_3p_end - 18:umi_3p_end] if umi_3p_end - umi_5p_start >= 18 else None
                     new_record = record
                 else:
                     # Check for motifs in the reverse complement sequence
@@ -60,26 +60,28 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
                         record.seq = Seq(rc_seq)
                         umi_5p_start = rc_seq.find(matched_5p) + len(matched_5p)
                         umi_3p_end = rc_seq.rfind(matched_3p)
-                        umi_5p = rc_seq[umi_5p_start:umi_5p_start + 12] if umi_3p_end - umi_5p_start >= 12 else None
-                        umi_3p = rc_seq[umi_3p_end - 12:umi_3p_end] if umi_3p_end - umi_5p_start >= 12 else None
+                        umi_5p = rc_seq[umi_5p_start:umi_5p_start + 18] if umi_3p_end - umi_5p_start >= 18 else None
+                        umi_3p = rc_seq[umi_3p_end - 18:umi_3p_end] if umi_3p_end - umi_5p_start >= 18 else None
                         new_record = record
                     else:
                         skipped += 1
                         continue
 
                 # Skip reads without UMIs, and log the item
-                if not umi_5p:
+                if not umi_5p or (umi_5p[:3]=="GAT" and umi_5p[:-3]=="CTA"):
                     no_umi5p += 1
                     continue
-                elif not umi_3p:
+                elif not umi_3p or (umi_5p[:3]=="CGA" and umi_5p[:-3]=="TGT"):
                     no_umi3p += 1
                     continue
                 elif not umi_5p and not umi_3p:
                     no_umi += 1
                     continue
+                else:
+                    umi_5p= umi_5p[3:-3]
+                    umi_3p= umi_3p[3:-3]
 
-
-
+                
                 # only keep reads with both UMIs
                 if umi_5p and umi_3p:
                     read.append(record)
@@ -94,16 +96,12 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
                     umi_pair_dict[umi_5p].append(umi_3p)
 
         # temporarily store data as dictionary
-        read_dict = dict(zip(read_name, zip(read, umi_5p_list, umi_3p_list)))
+        #read_dict = dict(zip(read_name, zip(read, umi_5p_list, umi_3p_list)))
+
 
         # count number of each 5p_umi
-        umi_5p_correction_dict = umi_correction(umi_5p_list)
-        umi_3p_correction_dict = umi_correction(umi_3p_list)
-
-
-        print(len(umi_5p_correction_dict.keys()))
-        print(len(umi_5p_list))
-
+        umi_5p_correction_dict = umi_correction(umi_5p_list, 3)
+        umi_3p_correction_dict = umi_correction(umi_3p_list, 3)
         
     with open(output_fastq, 'w') as out_handle:
         for i in range(len(read_name)):
@@ -204,8 +202,6 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
             corrected_umi_pair_dict[corrected_umi_5p] = []
         corrected_umi_pair_dict[corrected_umi_5p].extend(corrected_umi_3p_list)
 
-
-
     # Calculate hamming distances
     #print(umi_5p_list)
     calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_5p_list).keys()), sample_size=20),"output_files/5p_preCpluster_hamming_distances.png")
@@ -216,23 +212,22 @@ def extract_reads(input_fastq, min_read_length, output_fastq, motif_5p, motif_3p
     calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi_3p_correction_dict).keys()), sample_size=20),"output_files/3p_postCluster_hamming_distances.png")
     calc.plot_umi_frequencies(clustered_umi_3p, "output_files/3p_UMI_freq.png")
     
-    #logger.log_message(f"UMI Pair Dictionary: {umi_pair_dict}")
-    print(output_fastq)
-    #print(corrected_umi_pair_dict["CAACCGCAGGCT"])
     corrected_umi_pairings = calc.plot_most_frequent_3p_percentage_and_count_per_5p(output_fastq, "output_files/concordance.png")
     separate_fastq_by_umi5("output_files/reads_after_extract.fastq", "output_files/UMI5_separated",corrected_umi_pairings)
    
     logger.write_log("output_files/log.log")
     calc.export_5p_3p_UMIs(output_fastq, "output_files/5p_3p_UMI_pairs.csv")
 
-def umi_correction(umi_list):
-    umi_clusterer = UMIClusterer(cluster_method="directional") 
+
+
+def umi_correction(umi_list,threshold):
+    umi_clusterer = UMIClusterer(cluster_method="adjacency")
     umi_counter = Counter(umi_list)
     values = list(umi_counter.values())
     keys = list(umi_counter.keys())
     bit_keys = [umi.encode("utf-8") for umi in keys]
     umi_count_dict = dict(zip(bit_keys, values))
-    clustered_umis = umi_clusterer(umi_count_dict, threshold=4)
+    clustered_umis = umi_clusterer(umi_count_dict, threshold)
 
     # Create a dictionary with corrected UMIs as keys and uncorrected UMIs as values (list)
     umi_corrected_dict = {}
