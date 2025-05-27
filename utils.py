@@ -354,3 +354,27 @@ class calculator():
         # Save the DataFrame to a CSV file
         umi_df.to_csv(output_path, index=False)     
 
+    def hamming_distance_matrix(self,umi_list ,output="output_files/heatmap.png"):
+        """
+        This function generates a matrix of hamming distances between all pairs of UMIs in a list.
+        :param umi_list: List of UMIs
+        :return: DataFrame representing the hamming distance matrix
+        """
+        n = len(umi_list)
+        distance_matrix = pd.DataFrame(np.zeros((n, n)), index=umi_list, columns=umi_list)
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                distance = self.umi_hamming_distance(umi_list[i], umi_list[j])
+                distance_matrix.iloc[i, j] = distance
+                distance_matrix.iloc[j, i] = distance
+        
+        plt.imshow(distance_matrix, cmap='hot', interpolation='nearest')
+        plt.colorbar()
+        plt.title('Hamming Distance Matrix')
+        plt.xlabel('UMIs')
+        plt.ylabel('UMIs')
+        plt.savefig(output)
+
+
+    

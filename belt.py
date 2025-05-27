@@ -1,6 +1,7 @@
 import click
 from extract import extract_reads
 import yaml
+from group_umis import group_and_extract
 
 @click.group()
 def main():
@@ -63,23 +64,8 @@ def extract(input_fastq, output, min_read_length, motif5, motif3, fuzzy, window,
     final_config['window']
 )
 
-
-
-# Additional commands will follow this pattern
-from group_umis import group
-
-@main.command()
-@click.argument('input_bam')
-@click.option('--output_dir', required=True, help="Directory to store UMI-specific BAM files")
-def group(input_bam, output_dir):
-    """Group reads by 5' UMI sequence and output UMI-specific BAM files."""
-    group(input_bam, output_dir)
-
-
 def load_config(config_path):
     with open(config_path, 'r') as f:
         return yaml.safe_load(f) or {}
-    
-    
 if __name__ == "__main__":
     main()
