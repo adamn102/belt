@@ -377,4 +377,86 @@ class calculator():
         plt.savefig(output)
 
 
-    
+    def concordance(self, dict, output_path="output_files/concordance.png"):
+        """
+        This function generates a combined stacked bar and line graph:
+        - Stacked bar graph: Percentages of the most frequent, second most frequent, and third most frequent 3' UMIs for each 5' UMI.
+        - Line graph: Total number of 3' UMIs for each 5' UMI.
+        Additionally, it returns a dictionary mapping each 5' UMI to its most frequent 3' UMI.
+        
+        :param input_fastq: Path to the input FASTQ file.
+        :param output_path: Path to save the output plot.
+        :return: Dictionary mapping 5' UMIs to their most frequent 3' UMIs.
+        """
+        from collections import Counter
+
+        # Dictionary to store 5' UMIs as keys and associated 3' UMIs as values
+        umi_pair_dict = dict
+
+        # Calculate the percentages of the most frequent, second most frequent, and third most frequent 3' UMIs
+        most_frequent_3p_percentages = {}
+        second_most_frequent_3p_percentages = {}
+        third_most_frequent_3p_percentages = {}
+        total_3p_counts = {}
+        most_frequent_3p_dict = {}
+
+        for umi_5p, umi_3p_list in umi_pair_dict.items():
+            umi_3p_counts = Counter(umi_3p_list)
+            sorted_counts = sorted(umi_3p_counts.items(), key=lambda x: x[1], reverse=True)
+
+            # Get the most frequent, second most frequent, and third most frequent counts
+            most_frequent_count = sorted_counts[0][1] if len(sorted_counts) > 0 else 0
+            second_most_frequent_count = sorted_counts[1][1] if len(sorted_counts) > 1 else 0
+            third_most_frequent_count = sorted_counts[2][1] if len(sorted_counts) > 2 else 0
+
+            # Calculate percentages
+            total_count = len(umi_3p_list)
+            most_frequent_3p_percentages[umi_5p] = (most_frequent_count / total_count) * 100 if total_count > 0 else 0
+            second_most_frequent_3p_percentages[umi_5p] = (second_most_frequent_count / total_count) * 100 if total_count > 0 else 0
+            third_most_frequent_3p_percentages[umi_5p] = (third_most_frequent_count / total_count) * 100 if total_count > 0 else 0
+            total_3p_counts[umi_5p] = total_count
+
+            # Store the most frequent 3' UMI
+            most_frequent_3p_dict[umi_5p] = sorted_counts[0][0] if len(sorted_counts) > 0 else None
+
+        # Sort the 5' UMIs by the percentage of the most frequent 3' UMI in descending order
+        sorted_umis = sorted(most_frequent_3p_percentages.items(), key=lambda x: x[1], reverse=True)
+        umi_5p_labels, most_frequent_percentages = zip(*sorted_umis) if sorted_umis else ([], [])
+        second_most_frequent_percentages = [second_most_frequent_3p_percentages[umi_5p] for umi_5p in umi_5p_labels]
+        third_most_frequent_percentages = [third_most_frequent_3p_percentages[umi_5p] for umi_5p in umi_5p_labels]
+        total_counts_sorted = [total_3p_counts[umi_5p] for umi_5p in umi_5p_labels]
+
+        # Plot the combined graph
+        fig, ax1 = plt.subplots(figsize=(12, 6))
+
+        # Stacked bar graph for the percentages of the most frequent, second most frequent, and third most frequent 3' UMIs
+        x_indices = range(len(umi_5p_labels))
+        ax1.bar(x_indices, most_frequent_percentages, color='skyblue', edgecolor='black', label="Most Frequent 3' UMI (%)")
+        ax1.bar(x_indices, second_most_frequent_percentages, bottom=most_frequent_percentages, color='orange', edgecolor='black', label="Second Most Frequent 3' UMI (%)")
+        ax1.bar(x_indices, third_most_frequent_percentages, bottom=[i + j for i, j in zip(most_frequent_percentages, second_most_frequent_percentages)], color='green', edgecolor='black', label="Third Most Frequent 3' UMI (%)")
+
+        ax1.set_xlabel("5' UMIs", fontsize=12)
+        ax1.set_ylabel("Percentage of 3' UMIs", fontsize=12, color='blue')
+        ax1.tick_params(axis='y', labelcolor='blue')
+        ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # Hide x-axis labels for clarity
+        ax1.grid(axis='y', alpha=0.7)
+
+        # Line graph for the total number of 3' UMIs
+        ax2 = ax1.twinx()
+        ax2.plot(x_indices, total_counts_sorted, color='red', marker='o', linestyle='-', label="Total 3' UMI Count")
+        ax2.set_ylabel("Total Number of 3' UMIs", fontsize=12, color='red')
+        ax2.set_yscale('log')  # Set the right y-axis to log scale
+        ax2.tick_params(axis='y', labelcolor='red')
+
+        # Add legends
+        ax1.legend(loc='upper left')
+        ax2.legend(loc='upper right')
+
+        # Add title
+        plt.title("Most Frequent 3' UMI Percentages and Total 3' UMI Count per 5' UMI", fontsize=14)
+
+        plt.tight_layout()
+        plt.savefig(output_path)
+
+        # Return the dictionary of most frequent 3' UMIs
+        return most_frequent_3p_dict
