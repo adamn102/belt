@@ -1,9 +1,9 @@
 from datetime import datetime
-import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from itertools import combinations
 from collections import Counter
+import plotly.graph_objects as go
 
 class log:
     def __init__(self): # initializes the log, and starts the log history
@@ -12,7 +12,7 @@ class log:
 
     def log_message(self, msg):# disolay the message in the terminal and append it to the log history
         current_time_str = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
-        msg = f"[BELT][{current_time_str}] {msg}"
+        msg = f"[Barcode Toolbox][{current_time_str}] {msg}"
         print(msg)
         self.log_history.append(msg)
 
@@ -51,7 +51,7 @@ class log:
         self.log_history.append(f"[BELT][{current_time_str}] Log written to {output_file}")
 
      
-class calculator():
+class calculator:
 
     def __init__(self):
          self.calc_history = []
@@ -88,34 +88,34 @@ class calculator():
         out_df = pd.DataFrame({'UMI 1': umi_1, 'UMI 2': umi_2, 'Distance': distances})
         return Counter(distances)    
     
-    def plot_hamming_distances(self,distance_dict,output_path="output_files/hamming_distances.png"):
-        """
-        This function plots the hamming distances
-        :param distances: List of hamming distances
-        :return: None
-        """
-        # Sort by distance (keys)
+    def plot_hamming_distances(self, distance_dict, output_path="output_files/hamming_distances.html",sample_size=100):
+        
         distances = sorted(distance_dict.keys())
         frequencies = [distance_dict[d] for d in distances]
 
-                # Plot
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bars = ax.bar(distances, frequencies, color='skyblue', edgecolor='black')
-        ax.set_xlabel('Hamming Distance')
-        ax.set_ylabel('Frequency')
-        ax.set_title('Distribution of Hamming Distances')
-        ax.set_xticks(distances)
-        ax.grid(axis='y', alpha=0.7)
+        fig = go.Figure(
+            data=[
+                go.Bar(
+                    x=distances,
+                    y=frequencies,
+                    marker_color='skyblue',
+                    text=frequencies,
+                    textposition='outside'
+                )
+            ]
+        )
+        fig.update_layout(
+            title=f"Distribution of Hamming Distances(Sample of {sample_size})",
+            xaxis_title="Hamming Distance",
+            yaxis_title="Frequency",
+            bargap=0.2,
+            template="plotly_white"
+        )
+        fig.write_html(output_path)
 
-        # Add labels on top of bars
-        ax.bar_label(bars, padding=3)
-
-        plt.tight_layout()
-        plt.savefig(output_path)
-
-    def plot_umi_frequencies(self, umi_list, output_path="output_files/umi_freqs.png"):
+    def plot_umi_frequencies(self, umi_list, output_path="output_files/umi_freqs.html"):
         """
-        This function generates a line graph of UMI frequencies from most frequent to least frequent.
+        This function generates a line graph of UMI frequencies from most frequent to least frequent using Plotly.
         :param umi_list: List of UMIs (strings)
         :return: None
         """
@@ -126,337 +126,134 @@ class calculator():
         sorted_umis = sorted(umi_counts.items(), key=lambda x: x[1], reverse=True)
         umi_labels, frequencies = zip(*sorted_umis)
         
-        # Plot the line graph
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.plot(range(len(frequencies)), frequencies, marker='o', linestyle='-', color='blue')
-        ax.set_xlabel('UMIs (sorted by frequency)', fontsize=12)
-        ax.set_ylabel('Frequency', fontsize=12)
-        ax.set_title('UMI Frequency Distribution', fontsize=14)
-        ax.set_yscale('log')
-        ax.grid(axis='y', alpha=0.7)
-        
-        # Optional: Limit the x-axis to show only the top N UMIs
-        ax.set_xlim(0, len(frequencies))
-        
-        plt.tight_layout()
-        plt.savefig(output_path)
+        # Plot the line graph using Plotly
+        import plotly.graph_objects as go
+        fig = go.Figure(
+            data=[
+                go.Scatter(
+                    x=list(range(len(frequencies))),
+                    y=frequencies,
+                    mode='lines+markers',
+                    marker=dict(color='blue'),
+                    line=dict(shape='linear'),
+                    text=umi_labels,
+                    hovertemplate='UMI: %{text}<br>Frequency: %{y}<extra></extra>'
+                )
+            ]
+        )
+        fig.update_layout(
+            title='UMI Frequency Distribution',
+            xaxis_title='UMIs (sorted by frequency)',
+            yaxis_title='Frequency (log scale)',
+            yaxis_type='log',
+            template='plotly_white',
+            showlegend=False
+        )
+        fig.write_html(output_path)
 
-    def plot_unique_3p_per_5p(self, input_fastq, output_path="output_files/concordance.png"):
+    def hamming_distance_matrix(self, umi_list, output="output_files/heatmap.html", sample_size=100):
         """
-        This function generates a bar graph showing the number of unique 3' UMIs for each 5' UMI
-        by extracting UMIs directly from the read names in a FASTQ file.
-        
-        :param input_fastq: Path to the input FASTQ file.
-        :param output_path: Path to save the output plot.
-        :return: None
-        """
-        from Bio import SeqIO
-        from collections import defaultdict
-        input_fastq = input_fastq
-
-        # Dictionary to store 5' UMIs as keys and associated 3' UMIs as values
-        umi_pair_dict = defaultdict(list)
-
-        # Parse the FASTQ file and extract UMIs from read names
-        for record in SeqIO.parse(input_fastq, "fastq"):
-            if "UMI5-" in record.id and "-UMI3-" in record.id:
-                umi_5p = record.id.split("UMI5-")[1].split("-UMI3")[0]
-                umi_3p = record.id.split("-UMI3-")[1]
-                umi_pair_dict[umi_5p].append(umi_3p)
-
-        # Calculate the percentage of unique 3' UMIs for each 5' UMI
-        unique_3p_percentage = {
-            umi_5p: (len(set(umi_3p_list)) / len(umi_3p_list)) * 100
-            for umi_5p, umi_3p_list in umi_pair_dict.items()
-        }
-
-        # Sort the 5' UMIs by the percentage of unique 3' UMIs in descending order
-        sorted_umis = sorted(unique_3p_percentage.items(), key=lambda x: x[1], reverse=True)
-        umi_5p_labels, unique_percentages = zip(*sorted_umis) if sorted_umis else ([], [])
-
-        # Plot the bar graph
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.bar(umi_5p_labels, unique_percentages, color='skyblue', edgecolor='black')
-        ax.set_xlabel("5' UMIs", fontsize=12)
-        ax.set_ylabel("Percentage of Unique 3' UMIs", fontsize=12)
-        ax.set_title("Percentage of Unique 3' UMIs per 5' UMI", fontsize=14)
-        ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # Hide x-axis labels for clarity
-        ax.grid(axis='y', alpha=0.7)
-
-        plt.tight_layout()
-        plt.savefig(output_path)
-
-    def plot_most_frequent_3p_percentage_per_5p(self, input_fastq, output_path="output_files/concordance.png"):
-        """
-        This function generates a bar graph showing the percentage of the most frequent 3' UMI
-        for each 5' UMI by extracting UMIs directly from the read names in a FASTQ file.
-        
-        :param input_fastq: Path to the input FASTQ file.
-        :param output_path: Path to save the output plot.
-        :return: None
-        """
-        from Bio import SeqIO
-        from collections import defaultdict, Counter
-
-        # Dictionary to store 5' UMIs as keys and associated 3' UMIs as values
-        umi_pair_dict = defaultdict(list)
-
-        # Parse the FASTQ file and extract UMIs from read names
-        for record in SeqIO.parse(input_fastq, "fastq"):
-            if "UMI5-" in record.id and "-UMI3-" in record.id:
-                umi_5p = record.id.split("UMI5-")[1].split("-UMI3")[0]
-                umi_3p = record.id.split("-UMI3-")[1]
-                umi_pair_dict[umi_5p].append(umi_3p)
-
-        # Calculate the percentage of the most frequent 3' UMI for each 5' UMI
-        most_frequent_3p_percentage = {}
-        for umi_5p, umi_3p_list in umi_pair_dict.items():
-            umi_3p_counts = Counter(umi_3p_list)
-            most_frequent_count = max(umi_3p_counts.values())
-            most_frequent_3p_percentage[umi_5p] = (most_frequent_count / len(umi_3p_list)) * 100
-
-        # Sort the 5' UMIs by the percentage of the most frequent 3' UMI in descending order
-        sorted_umis = sorted(most_frequent_3p_percentage.items(), key=lambda x: x[1], reverse=True)
-        umi_5p_labels, most_frequent_percentages = zip(*sorted_umis) if sorted_umis else ([], [])
-
-        # Plot the bar graph
-        fig, ax = plt.subplots(figsize=(12, 6))
-        ax.bar(umi_5p_labels, most_frequent_percentages, color='skyblue', edgecolor='black')
-        ax.set_xlabel("5' UMIs", fontsize=12)
-        ax.set_ylabel("Percentage of Most Frequent 3' UMI", fontsize=12)
-        ax.set_title("Percentage of Most Frequent 3' UMI per 5' UMI", fontsize=14)
-        ax.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # Hide x-axis labels for clarity
-        ax.grid(axis='y', alpha=0.7)
-
-        plt.tight_layout()
-        plt.savefig(output_path)
-
-    def plot_most_frequent_3p_percentage_and_count_per_5p(self, input_fastq, output_path="output_files/concordance.png"):
-        """
-        This function generates a combined stacked bar and line graph:
-        - Stacked bar graph: Percentages of the most frequent, second most frequent, and third most frequent 3' UMIs for each 5' UMI.
-        - Line graph: Total number of 3' UMIs for each 5' UMI.
-        Additionally, it returns a dictionary mapping each 5' UMI to its most frequent 3' UMI.
-        
-        :param input_fastq: Path to the input FASTQ file.
-        :param output_path: Path to save the output plot.
-        :return: Dictionary mapping 5' UMIs to their most frequent 3' UMIs.
-        """
-        from Bio import SeqIO
-        from collections import defaultdict, Counter
-
-        # Dictionary to store 5' UMIs as keys and associated 3' UMIs as values
-        umi_pair_dict = defaultdict(list)
-
-        # Parse the FASTQ file and extract UMIs from read names
-        for record in SeqIO.parse(input_fastq, "fastq"):
-            if "UMI5-" in record.id and "-UMI3-" in record.id:
-                umi_5p = record.id.split("UMI5-")[1].split("-UMI3")[0]
-                umi_3p = record.id.split("-UMI3-")[1]
-                umi_pair_dict[umi_5p].append(umi_3p)
-
-        # Calculate the percentages of the most frequent, second most frequent, and third most frequent 3' UMIs
-        most_frequent_3p_percentages = {}
-        second_most_frequent_3p_percentages = {}
-        third_most_frequent_3p_percentages = {}
-        total_3p_counts = {}
-        most_frequent_3p_dict = {}
-
-        for umi_5p, umi_3p_list in umi_pair_dict.items():
-            umi_3p_counts = Counter(umi_3p_list)
-            sorted_counts = sorted(umi_3p_counts.items(), key=lambda x: x[1], reverse=True)
-
-            # Get the most frequent, second most frequent, and third most frequent counts
-            most_frequent_count = sorted_counts[0][1] if len(sorted_counts) > 0 else 0
-            second_most_frequent_count = sorted_counts[1][1] if len(sorted_counts) > 1 else 0
-            third_most_frequent_count = sorted_counts[2][1] if len(sorted_counts) > 2 else 0
-
-            # Calculate percentages
-            total_count = len(umi_3p_list)
-            most_frequent_3p_percentages[umi_5p] = (most_frequent_count / total_count) * 100 if total_count > 0 else 0
-            second_most_frequent_3p_percentages[umi_5p] = (second_most_frequent_count / total_count) * 100 if total_count > 0 else 0
-            third_most_frequent_3p_percentages[umi_5p] = (third_most_frequent_count / total_count) * 100 if total_count > 0 else 0
-            total_3p_counts[umi_5p] = total_count
-
-            # Store the most frequent 3' UMI
-            most_frequent_3p_dict[umi_5p] = sorted_counts[0][0] if len(sorted_counts) > 0 else None
-
-        # Sort the 5' UMIs by the percentage of the most frequent 3' UMI in descending order
-        sorted_umis = sorted(most_frequent_3p_percentages.items(), key=lambda x: x[1], reverse=True)
-        umi_5p_labels, most_frequent_percentages = zip(*sorted_umis) if sorted_umis else ([], [])
-        second_most_frequent_percentages = [second_most_frequent_3p_percentages[umi_5p] for umi_5p in umi_5p_labels]
-        third_most_frequent_percentages = [third_most_frequent_3p_percentages[umi_5p] for umi_5p in umi_5p_labels]
-        total_counts_sorted = [total_3p_counts[umi_5p] for umi_5p in umi_5p_labels]
-
-        # Plot the combined graph
-        fig, ax1 = plt.subplots(figsize=(12, 6))
-
-        # Stacked bar graph for the percentages of the most frequent, second most frequent, and third most frequent 3' UMIs
-        x_indices = range(len(umi_5p_labels))
-        ax1.bar(x_indices, most_frequent_percentages, color='skyblue', edgecolor='black', label="Most Frequent 3' UMI (%)")
-        ax1.bar(x_indices, second_most_frequent_percentages, bottom=most_frequent_percentages, color='orange', edgecolor='black', label="Second Most Frequent 3' UMI (%)")
-        ax1.bar(x_indices, third_most_frequent_percentages, bottom=[i + j for i, j in zip(most_frequent_percentages, second_most_frequent_percentages)], color='green', edgecolor='black', label="Third Most Frequent 3' UMI (%)")
-
-        ax1.set_xlabel("5' UMIs", fontsize=12)
-        ax1.set_ylabel("Percentage of 3' UMIs", fontsize=12, color='blue')
-        ax1.tick_params(axis='y', labelcolor='blue')
-        ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # Hide x-axis labels for clarity
-        ax1.grid(axis='y', alpha=0.7)
-
-        # Line graph for the total number of 3' UMIs
-        ax2 = ax1.twinx()
-        ax2.plot(x_indices, total_counts_sorted, color='red', marker='o', linestyle='-', label="Total 3' UMI Count")
-        ax2.set_ylabel("Total Number of 3' UMIs", fontsize=12, color='red')
-        ax2.set_yscale('log')  # Set the right y-axis to log scale
-        ax2.tick_params(axis='y', labelcolor='red')
-
-        # Add legends
-        ax1.legend(loc='upper left')
-        ax2.legend(loc='upper right')
-
-        # Add title
-        plt.title("Most Frequent 3' UMI Percentages and Total 3' UMI Count per 5' UMI", fontsize=14)
-
-        plt.tight_layout()
-        plt.savefig(output_path)
-
-        # Return the dictionary of most frequent 3' UMIs
-        return most_frequent_3p_dict
-
-    def export_5p_3p_UMIs(self, input_fastq, output_path="output_files/5p_3p_UMIs.csv"):
-        """
-        This function extracts 5' and 3' UMIs from the read names in a FASTQ file and exports them to a CSV file.
-        
-        :param input_fastq: Path to the input FASTQ file.
-        :param output_path: Path to save the output CSV file.
-        :return: None
-        """
-        from Bio import SeqIO
-        import pandas as pd
-        from collections import defaultdict
-
-        # Dictionary to store 5' UMIs as keys and associated 3' UMIs as values
-        umi_pair_dict = defaultdict(list)
-
-        # Parse the FASTQ file and extract UMIs from read names
-        for record in SeqIO.parse(input_fastq, "fastq"):
-            if "UMI5-" in record.id and "-UMI3-" in record.id:
-                umi_5p = record.id.split("UMI5-")[1].split("-UMI3")[0]
-                umi_3p = record.id.split("-UMI3-")[1]
-                umi_pair_dict[umi_5p].append(umi_3p)
-
-        # Prepare data for the DataFrame
-        data = [{'5\' UMI': umi_5p, '3\' UMIs': ', '.join(umi_3p_list)} for umi_5p, umi_3p_list in umi_pair_dict.items()]
-
-        # Create a DataFrame
-        umi_df = pd.DataFrame(data)
-
-        # Save the DataFrame to a CSV file
-        umi_df.to_csv(output_path, index=False)     
-
-    def hamming_distance_matrix(self,umi_list ,output="output_files/heatmap.png"):
-        """
-        This function generates a matrix of hamming distances between all pairs of UMIs in a list.
+        Generates an interactive Plotly heatmap of Hamming distances between a sample of UMIs.
+        The color scale is set to constant numbers (min=0, max=length of UMI).
+        Hovering shows the UMIs for each cell, but axis tick labels are hidden.
         :param umi_list: List of UMIs
+        :param output: Output HTML file for the heatmap
+        :param sample_size: Number of UMIs to sample for the matrix
         :return: DataFrame representing the hamming distance matrix
         """
-        n = len(umi_list)
-        distance_matrix = pd.DataFrame(np.zeros((n, n)), index=umi_list, columns=umi_list)
+        if len(umi_list) > sample_size:
+            umi_sample = np.random.choice(umi_list, size=sample_size, replace=False)
+        else:
+            umi_sample = umi_list
+
+        n = len(umi_sample)
+        distance_matrix = np.zeros((n, n), dtype=int)
 
         for i in range(n):
             for j in range(i + 1, n):
-                distance = self.umi_hamming_distance(umi_list[i], umi_list[j])
-                distance_matrix.iloc[i, j] = distance
-                distance_matrix.iloc[j, i] = distance
-        
-        plt.imshow(distance_matrix, cmap='hot', interpolation='nearest')
-        plt.colorbar()
-        plt.title('Hamming Distance Matrix')
-        plt.xlabel('UMIs')
-        plt.ylabel('UMIs')
-        plt.savefig(output)
+                distance = self.umi_hamming_distance(umi_sample[i], umi_sample[j])
+                distance_matrix[i, j] = distance
+                distance_matrix[j, i] = distance
 
+        df = pd.DataFrame(distance_matrix, index=umi_sample, columns=umi_sample)
 
-    def concordance(self, dict, output_path="output_files/concordance.png"):
+        # Set color scale min/max based on UMI length
+        umi_length = len(str(umi_sample[0])) if n > 0 else 0
+
+        # Prepare customdata so that each cell contains [UMI_X, UMI_Y]
+        customdata = np.empty((n, n, 2), dtype=object)
+        for i in range(n):
+            for j in range(n):
+                customdata[i, j, 0] = umi_sample[j]  # x-axis UMI
+                customdata[i, j, 1] = umi_sample[i]  # y-axis UMI
+
+        fig = go.Figure(
+            data=go.Heatmap(
+            z=df.values,
+            x=list(range(n)),  # Use integer indices for axis
+            y=list(range(n)),
+            colorscale='Viridis',
+            colorbar=dict(title='Hamming Distance'),
+            showscale=True,
+            zmin=0,
+            zmax=umi_length,
+            customdata=customdata,
+            hovertemplate="UMI X: %{customdata[0]}<br>UMI Y: %{customdata[1]}<br>Distance: %{z}<extra></extra>"
+            )
+        )
+        fig.update_layout(
+            title=f'Hamming Distance Matrix (Sample of {sample_size})',
+            xaxis=dict(title='UMIs', showticklabels=False),
+            yaxis=dict(title='UMIs', showticklabels=False)
+        )
+        fig.write_html(output)
+        return df
+
+    def chao1(self, umi_list):
         """
-        This function generates a combined stacked bar and line graph:
-        - Stacked bar graph: Percentages of the most frequent, second most frequent, and third most frequent 3' UMIs for each 5' UMI.
-        - Line graph: Total number of 3' UMIs for each 5' UMI.
-        Additionally, it returns a dictionary mapping each 5' UMI to its most frequent 3' UMI.
-        
-        :param input_fastq: Path to the input FASTQ file.
-        :param output_path: Path to save the output plot.
-        :return: Dictionary mapping 5' UMIs to their most frequent 3' UMIs.
+            Calculates the Chao1 diversity index for a list of UMIs.
+            :param umi_list: List of UMIs (strings)
+            :return: Chao1 diversity index (float)
+            """
+        counts = Counter(umi_list)
+        S_obs = len(counts)
+        f1 = sum(1 for c in counts.values() if c == 1)
+        f2 = sum(1 for c in counts.values() if c == 2)
+        if f2 == 0:
+            print("Warning: No UMIs with exactly 2 counts found. Using bias-corrected formula.")
+            # Avoid division by zero; use the bias-corrected formula
+            return S_obs + (f1 * (f1 - 1)) / 2 if f1 > 1 else S_obs
+        return S_obs + (f1 ** 2) / (2 * f2)
+    
+    def balazs_chao1(self, umi_list):
         """
-        from collections import Counter
-
-        # Dictionary to store 5' UMIs as keys and associated 3' UMIs as values
-        umi_pair_dict = dict
-
-        # Calculate the percentages of the most frequent, second most frequent, and third most frequent 3' UMIs
-        most_frequent_3p_percentages = {}
-        second_most_frequent_3p_percentages = {}
-        third_most_frequent_3p_percentages = {}
-        total_3p_counts = {}
-        most_frequent_3p_dict = {}
-
-        for umi_5p, umi_3p_list in umi_pair_dict.items():
-            umi_3p_counts = Counter(umi_3p_list)
-            sorted_counts = sorted(umi_3p_counts.items(), key=lambda x: x[1], reverse=True)
-
-            # Get the most frequent, second most frequent, and third most frequent counts
-            most_frequent_count = sorted_counts[0][1] if len(sorted_counts) > 0 else 0
-            second_most_frequent_count = sorted_counts[1][1] if len(sorted_counts) > 1 else 0
-            third_most_frequent_count = sorted_counts[2][1] if len(sorted_counts) > 2 else 0
-
-            # Calculate percentages
-            total_count = len(umi_3p_list)
-            most_frequent_3p_percentages[umi_5p] = (most_frequent_count / total_count) * 100 if total_count > 0 else 0
-            second_most_frequent_3p_percentages[umi_5p] = (second_most_frequent_count / total_count) * 100 if total_count > 0 else 0
-            third_most_frequent_3p_percentages[umi_5p] = (third_most_frequent_count / total_count) * 100 if total_count > 0 else 0
-            total_3p_counts[umi_5p] = total_count
-
-            # Store the most frequent 3' UMI
-            most_frequent_3p_dict[umi_5p] = sorted_counts[0][0] if len(sorted_counts) > 0 else None
-
-        # Sort the 5' UMIs by the percentage of the most frequent 3' UMI in descending order
-        sorted_umis = sorted(most_frequent_3p_percentages.items(), key=lambda x: x[1], reverse=True)
-        umi_5p_labels, most_frequent_percentages = zip(*sorted_umis) if sorted_umis else ([], [])
-        second_most_frequent_percentages = [second_most_frequent_3p_percentages[umi_5p] for umi_5p in umi_5p_labels]
-        third_most_frequent_percentages = [third_most_frequent_3p_percentages[umi_5p] for umi_5p in umi_5p_labels]
-        total_counts_sorted = [total_3p_counts[umi_5p] for umi_5p in umi_5p_labels]
-
-        # Plot the combined graph
-        fig, ax1 = plt.subplots(figsize=(12, 6))
-
-        # Stacked bar graph for the percentages of the most frequent, second most frequent, and third most frequent 3' UMIs
-        x_indices = range(len(umi_5p_labels))
-        ax1.bar(x_indices, most_frequent_percentages, color='skyblue', edgecolor='black', label="Most Frequent 3' UMI (%)")
-        ax1.bar(x_indices, second_most_frequent_percentages, bottom=most_frequent_percentages, color='orange', edgecolor='black', label="Second Most Frequent 3' UMI (%)")
-        ax1.bar(x_indices, third_most_frequent_percentages, bottom=[i + j for i, j in zip(most_frequent_percentages, second_most_frequent_percentages)], color='green', edgecolor='black', label="Third Most Frequent 3' UMI (%)")
-
-        ax1.set_xlabel("5' UMIs", fontsize=12)
-        ax1.set_ylabel("Percentage of 3' UMIs", fontsize=12, color='blue')
-        ax1.tick_params(axis='y', labelcolor='blue')
-        ax1.tick_params(axis='x', which='both', bottom=False, top=False, labelbottom=False)  # Hide x-axis labels for clarity
-        ax1.grid(axis='y', alpha=0.7)
-
-        # Line graph for the total number of 3' UMIs
-        ax2 = ax1.twinx()
-        ax2.plot(x_indices, total_counts_sorted, color='red', marker='o', linestyle='-', label="Total 3' UMI Count")
-        ax2.set_ylabel("Total Number of 3' UMIs", fontsize=12, color='red')
-        ax2.set_yscale('log')  # Set the right y-axis to log scale
-        ax2.tick_params(axis='y', labelcolor='red')
-
-        # Add legends
-        ax1.legend(loc='upper left')
-        ax2.legend(loc='upper right')
-
-        # Add title
-        plt.title("Most Frequent 3' UMI Percentages and Total 3' UMI Count per 5' UMI", fontsize=14)
-
-        plt.tight_layout()
-        plt.savefig(output_path)
-
-        # Return the dictionary of most frequent 3' UMIs
-        return most_frequent_3p_dict
+            Calculates the updated Chao1 diversity index for a list of UMIs.
+            :param umi_list: List of UMIs (strings)
+            :return: Chao1 diversity index (float)
+        """
+        counts = Counter(umi_list)
+        S_obs = len(counts)
+        f1 = sum(1 for c in counts.values() if c == 1)
+        f2 = sum(1 for c in counts.values() if c == 2)
+        f4 = sum(1 for c in counts.values() if c == 4)
+        if f4 == 0:
+            print("Warning: No UMIs with exactly 4 counts found. Using bias-corrected formula.")
+            # Avoid division by zero; use the bias-corrected formula
+            return None 
+        return S_obs + (f2 **2 ) / (2 * f4)
+    
+    def shannon_entropy(self, umi_list):
+        """
+        Calculates Shannon's entropy for a list of UMIs.
+        :param umi_list: List of UMIs (strings)
+        :return: Shannon's entropy (float)
+        """
+        counts = Counter(umi_list)
+        total = sum(counts.values())
+        if total == 0:
+            return 0.0
+        probabilities = [count / total for count in counts.values()]
+        return -sum(p * np.log2(p) for p in probabilities if p > 0) 
+    
+    
+        
