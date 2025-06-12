@@ -26,7 +26,10 @@ def extract_UMIs(reference, alignedReads, minReadLength ,barcodeMotif,outputDir)
     calc = calculator()
     logger.log_message(f"UMI extraction of {sampleName} with barcode {barcodeMotif} motif started.")
 
-    raw_umi5_list, raw_umi3_list, motif5_index, motif3_index = findUMI(reference, alignedReads, barcodeMotif, minReadLength)
+    raw_umi5_list, raw_umi3_list, motif5_index, motif3_index, raw_UMI_dict = findUMI(reference, alignedReads, barcodeMotif, minReadLength)
+
+    
+
     logger.log_message(f"Motif5 found at index {motif5_index}, Motif3 found at index {motif3_index} in reference sequence.")
     if raw_umi5_list is None or raw_umi3_list is None:
         logger.log_message("UMI extraction failed. Please check the input files and parameters.")
@@ -40,27 +43,29 @@ def extract_UMIs(reference, alignedReads, minReadLength ,barcodeMotif,outputDir)
     umi3p_clusters = umi_clustering(raw_umi3_list)
     corrected_umi5_list = correctUMIS(raw_umi5_list, umi5p_clusters)
     corrected_umi3_list = correctUMIS(raw_umi3_list, umi3p_clusters)
+    corrected_UMI_dict = correct_UMI_dict(raw_UMI_dict, umi5p_clusters, umi3p_clusters)
 
     umi5p_stats = calculate_umi_stats(umi5p_clusters,corrected_umi5_list,raw_umi5_list)
     umi3p_stats = calculate_umi_stats(umi3p_clusters,corrected_umi3_list,raw_umi3_list)
 
-
     
     #write csv files with the clustered UMIs
     write_csv(["5' UMI Corrected","3' UMI Corrected"], [corrected_umi5_list,corrected_umi3_list], f"{outputDir}/{sampleName}_correctedUMIs.csv")
-
+    write_csv(["Read Name", "5' UMI", "3' UMI"], [[read_name for read_name in corrected_UMI_dict.keys()],
+                                                    [list(umi_pair.keys())[0] for umi_pair in corrected_UMI_dict.values()],
+                                                    [list(umi_pair.values())[0] for umi_pair in corrected_UMI_dict.values()]], 
+              f"{outputDir}/{sampleName}_correctedUMIs_read_names.csv")
     
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi5p_clusters).keys()), sample_size=100),f"{outputDir}/html/hamming_distances_5p.html",500)
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi3p_clusters).keys()), sample_size=100),f"{outputDir}/html/hamming_distances_3p.html",500)
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi5p_clusters).keys()), sample_size=400),f"{outputDir}/html/hamming_distances_5p.html"400)
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi3p_clusters).keys()), sample_size=400),f"{outputDir}/html/hamming_distances_3p.html",400)
     calc.plot_umi_frequencies(corrected_umi5_list, f"{outputDir}/html/umi_freq_5p.html")
     calc.plot_umi_frequencies(corrected_umi3_list, f"{outputDir}/html/umi_freq_3p.html")
-    calc.hamming_distance_matrix(list(umi5p_clusters.keys()), f"{outputDir}/html/umi_freq_matrix_5p.html",sample_size=100)
-    calc.hamming_distance_matrix(list(umi3p_clusters.keys()), f"{outputDir}/html/umi_freq_matrix_3p.html",sample_size=100)
+    calc.hamming_distance_matrix(list(umi5p_clusters.keys()), f"{outputDir}/html/umi_freq_matrix_5p.html",sample_size=400)
+    calc.hamming_distance_matrix(list(umi3p_clusters.keys()), f"{outputDir}/html/umi_freq_matrix_3p.html",sample_size=400)
 
     createHTML(umi5p_stats, umi3p_stats,f"{outputDir}", sampleName, pi_photo_path="alex.png")
     logger.log_message(f"HTML report created at {outputDir}/{sampleName}_Report.html")
     logger.write_log(f"{outputDir}/{sampleName}_log.txt")
-
 
 def findUMI(reference, alignedReads, barcodeMotif, minReadLength):
     """
@@ -69,6 +74,7 @@ def findUMI(reference, alignedReads, barcodeMotif, minReadLength):
     # Intializing variables and finding the barcode motif in the reference sequence.
     raw_umi5_list = []
     raw_umi3_list = []
+    raw_UMI_dict = {}
     barcodeLength = len(barcodeMotif)
     motif5_index = None
     motif3_index = None
@@ -112,11 +118,13 @@ def findUMI(reference, alignedReads, barcodeMotif, minReadLength):
             if ref_pos == umi5_end - 1:
                 query_end_5p = i + 1  # end is exclusive
                 break
-        
+    
         if query_start_5p is not None and query_end_5p is not None:
             seq5p = read.query_sequence[query_start_5p:query_end_5p]
             if len(seq5p)== barcodeLength:
                 raw_umi5_list.append(seq5p)
+                raw_UMI_dict[read.query_name] = [seq5p,""]
+
             
 
         # Find query indices corresponding to the 3p UMI region
@@ -132,10 +140,13 @@ def findUMI(reference, alignedReads, barcodeMotif, minReadLength):
             seq3p = read.query_sequence[query_start_3p:query_end_3p]
             if len(seq3p)== barcodeLength:
                 raw_umi3_list.append(seq3p)
-
+                if read.query_name in raw_UMI_dict:
+                    raw_UMI_dict[read.query_name] = [raw_UMI_dict[read.query_name][0], seq3p]
+                else:
+                    raw_UMI_dict[read.query_name] = [None, seq3p]
 
     bamfile.close()
-    return raw_umi5_list, raw_umi3_list, motif5_index, motif3_index      
+    return raw_umi5_list, raw_umi3_list, motif5_index, motif3_index, raw_UMI_dict      
 
 def write_csv(headers, data, output_file):
     """
@@ -220,7 +231,6 @@ def umi_clustering(umi_list):
     return umi_corrected_dict
 
 def correctUMIS(umi_list, correction_dict):
-
     corrected_umi_list = [
         next(
             (corrected for corrected, uncorrected_list in correction_dict.items() if umi in uncorrected_list),
@@ -229,6 +239,23 @@ def correctUMIS(umi_list, correction_dict):
         for umi in umi_list
     ]
     return corrected_umi_list
+
+def correct_UMI_dict(raw_UMI_dict, correction_dict_5p, correction_dict_3p):
+    corrected_dict = {}
+    for read_name, umi_pair in raw_UMI_dict.items():
+        umi5p, umi3p = umi_pair
+        # Correct 5p UMI
+        corrected_5p = next(
+            (corr for corr, uncorrected_list in correction_dict_5p.items() if umi5p in uncorrected_list),
+            umi5p
+        )
+        # Correct 3p UMI
+        corrected_3p = next(
+            (corr for corr, uncorrected_list in correction_dict_3p.items() if umi3p in uncorrected_list),
+            umi3p
+        )
+        corrected_dict[read_name] = {corrected_5p: corrected_3p}
+    return corrected_dict
 
 def calculate_umi_stats(dict, correctedList ,rawList):
     """

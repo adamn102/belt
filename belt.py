@@ -21,5 +21,5 @@ def extract(reference, alignment, min_read_length,motif, output):
 def load_config(config_path):
     with open(config_path, 'r') as f:
         return yaml.safe_load(f) or {}
-if __name__ == "__main__":
+if __name__ == "__main__": 
     main()

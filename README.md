@@ -52,3 +52,5 @@ python3 belt.py extract /Users/nomur/GitHub/test_data_belt/test_data/raw_fastq_f
 python3 belt.py extract /Users/nartsavomur/Desktop/tmp_server_files/tests/test_data/raw_fastq_files/NL43-test.fastq --config config.yaml
 
 ref = /Users/nomur/GitHub/test_data_belt/ERR-Seq-v2.4-NL4-3-Env-Plus-Reference.fasta
+
+python3 belt.py extract --reference /Users/nartsavomur/Desktop/tmp_server_files/tests/ESV24-NL43-EnvPlus-Library-Quantized/ESV24-NL43-EnvPlus-Library-Reference.fasta --alignment /Users/nartsavomur/Desktop/tmp_server_files/tests/ESV24-NL43-EnvPlus-Library-Quantized/ESV24-NL43-EnvPlus-Library-sorted.bam --output /Users/nartsavomur/Desktop/tmp_server_files/tests/ESV24-NL43-EnvPlus-Library-Quantized
