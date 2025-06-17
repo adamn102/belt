@@ -41,13 +41,16 @@ def extract_UMIs(reference, alignedReads, minReadLength ,barcodeMotif,outputDir)
     #Clustering the UMIs and creating a corrected list
     umi5p_clusters = umi_clustering(raw_umi5_list)
     umi3p_clusters = umi_clustering(raw_umi3_list)
+    logger.log_message(f"UMI clustering of {sampleName} with barcode {barcodeMotif} motif finished.")
     corrected_umi5_list = correctUMIS(raw_umi5_list, umi5p_clusters)
     corrected_umi3_list = correctUMIS(raw_umi3_list, umi3p_clusters)
+    logger.log_message(f"UMI correction on the lists of {sampleName} with barcode {barcodeMotif} motif finished.")
     corrected_UMI_dict = correct_UMI_dict(raw_UMI_dict, umi5p_clusters, umi3p_clusters)
+    logger.log_message(f"UMI correction on the dictionaries of {sampleName} with barcode {barcodeMotif} motif finished.")
 
     umi5p_stats = calculate_umi_stats(umi5p_clusters,corrected_umi5_list,raw_umi5_list)
     umi3p_stats = calculate_umi_stats(umi3p_clusters,corrected_umi3_list,raw_umi3_list)
-
+    logger.log_message(f"UMI statistics calculation of {sampleName} with barcode {barcodeMotif} motif finished.")
     
     #write csv files with the clustered UMIs
     write_csv(["5' UMI Corrected","3' UMI Corrected"], [corrected_umi5_list,corrected_umi3_list], f"{outputDir}/{sampleName}_correctedUMIs.csv")
@@ -55,13 +58,14 @@ def extract_UMIs(reference, alignedReads, minReadLength ,barcodeMotif,outputDir)
                                                     [list(umi_pair.keys())[0] for umi_pair in corrected_UMI_dict.values()],
                                                     [list(umi_pair.values())[0] for umi_pair in corrected_UMI_dict.values()]], 
               f"{outputDir}/{sampleName}_correctedUMIs_read_names.csv")
-    
+    logger.log_message(f"UMI CSV files of {sampleName} with barcode {barcodeMotif} motif created.")
     calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi5p_clusters).keys()), sample_size=400),f"{outputDir}/html/hamming_distances_5p.html"400)
     calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi3p_clusters).keys()), sample_size=400),f"{outputDir}/html/hamming_distances_3p.html",400)
     calc.plot_umi_frequencies(corrected_umi5_list, f"{outputDir}/html/umi_freq_5p.html")
     calc.plot_umi_frequencies(corrected_umi3_list, f"{outputDir}/html/umi_freq_3p.html")
     calc.hamming_distance_matrix(list(umi5p_clusters.keys()), f"{outputDir}/html/umi_freq_matrix_5p.html",sample_size=400)
     calc.hamming_distance_matrix(list(umi3p_clusters.keys()), f"{outputDir}/html/umi_freq_matrix_3p.html",sample_size=400)
+    logger.log_message(f"UMI plots of {sampleName} with barcode {barcodeMotif} motif created.")
 
     createHTML(umi5p_stats, umi3p_stats,f"{outputDir}", sampleName, pi_photo_path="alex.png")
     logger.log_message(f"HTML report created at {outputDir}/{sampleName}_Report.html")
