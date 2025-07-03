@@ -59,7 +59,7 @@ def extract_UMIs(reference, alignedReads, minReadLength ,barcodeMotif,outputDir)
                                                     [list(umi_pair.values())[0] for umi_pair in corrected_UMI_dict.values()]], 
               f"{outputDir}/{sampleName}_correctedUMIs_read_names.csv")
     logger.log_message(f"UMI CSV files of {sampleName} with barcode {barcodeMotif} motif created.")
-    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi5p_clusters).keys()), sample_size=400),f"{outputDir}/html/hamming_distances_5p.html"400)
+    calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi5p_clusters).keys()), sample_size=400),f"{outputDir}/html/hamming_distances_5p.html",400)
     calc.plot_hamming_distances(calc.calculate_hamming_distances(list(Counter(umi3p_clusters).keys()), sample_size=400),f"{outputDir}/html/hamming_distances_3p.html",400)
     calc.plot_umi_frequencies(corrected_umi5_list, f"{outputDir}/html/umi_freq_5p.html")
     calc.plot_umi_frequencies(corrected_umi3_list, f"{outputDir}/html/umi_freq_3p.html")
@@ -218,7 +218,7 @@ def createHTML(umi5p_stats, umi3p_stats, output_dir, sample_name, pi_photo_path)
         html_file.write(html_content)
 
 def umi_clustering(umi_list):
-    umi_clusterer = UMIClusterer(cluster_method="directional")
+    umi_clusterer = UMIClusterer(cluster_method="adjacency")
     umi_counter = Counter(umi_list)
     values = list(umi_counter.values())
     keys = list(umi_counter.keys())
