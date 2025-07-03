@@ -1,0 +1,11 @@
+samples:
+  LP250: data/1-fastq_files/LP250.fastq
+  LP251: data/1-fastq_files/LP251.fastq
+
+barcodes:
+  LP250: NHHHHHHHHHHHHHM
+  LP251: NHCNNCNNCNNCNNCNNCNNCN
+
+min_lengths:
+  LP250: 3000
+  LP251: 3000
