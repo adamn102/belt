@@ -1,3 +1,4 @@
+from belt.scripts.utils import log
 from belt.scripts.extract import *
 from pybktree import BKTree
 import pandas as pd
