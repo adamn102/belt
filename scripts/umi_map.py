@@ -1,8 +1,4 @@
-from belt.scripts.utils import log
-from belt.scripts.utils import calculator
 from belt.scripts.extract import *
-from umi_tools import UMIClusterer
-from collections import Counter
 from pybktree import BKTree
 import pandas as pd
 
@@ -27,7 +23,7 @@ def umi_extraction_map(reference, alignedReads, minReadLength, barcodeMotif, whi
     logger.log_message("Mapping raw UMIs to whitelist...")
     umi5_list, umi3_list = load_whitelist(whitelist)
 
-    # create a mapping dictionary using the raw umis and the white lsit
+    # create a mapping dictionary using the raw umis and the white list
     # return the minimal set of raw umis
     raw_umi5_set = list(set(raw_umi5_list))
     raw_umi3_set = list(set(raw_umi3_list))
@@ -71,7 +67,6 @@ def umi_extraction_map(reference, alignedReads, minReadLength, barcodeMotif, whi
     df.to_csv(f"{outputDir}/{sampleName}_Paired_UMIs_read_names.csv", index=False)
 
 
-
 def load_whitelist(whitelist_file):
     """
     Load whitelist from a file.
@@ -105,18 +100,15 @@ def BK_scan(experimental_umis, whitelist, max_distance=2):
     # and the matched_umi and distance as values
     tree = BKTree(string_hamming, whitelist)
 
-    results = []
     results = dict()
     for umi in experimental_umis:
         matches = tree.find(umi, max_distance)
         if not matches:
             results[umi] = (umi, "NoMatch")
-            #results.append((umi, None, None))
         else:
             # Pick the match with minimum distance
             best_match = min(matches, key=lambda x: x[0])
             distance, matched_umi = best_match
             results[umi] = (matched_umi, distance)
-            #results.append((umi, matched_umi, distance))
 
     return results
