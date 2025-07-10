@@ -1,5 +1,7 @@
 import click
 from extract import extract_UMIs
+from whitelist import umi_whitelist
+from umi_map import umi_extraction_map
 import yaml
 
 

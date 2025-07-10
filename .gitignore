@@ -1,3 +1,4 @@
+test_data/
 output_files/reads_after_extract.fastq
 output_files/UMI5_separated/UMI5_AAAGAGCGCGGC.fastq
 output_files/UMI5_separated/UMI5_AAGAACCGCAGG.fastq

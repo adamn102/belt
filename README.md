@@ -1,11 +1,13 @@
 BELT - BalazsLab Error-correction Longread Tools
 
-BELT is a toolkit designed for processing and analyzing long-read sequencing data. It provides functionality for extracting reads based on motifs and UMIs (Unique Molecular Identifiers), grouping reads by UMIs, and analyzing UMI distributions.
+BELT is a toolkit designed for processing and analyzing long-read sequencing data. It provides functionality for extracting reads based on motifs and UMIs (Unique Molecular Identifiers), grouping reads by UMIs, and analyzing UMI distributions. BELT also allows for the integration of short-read sequencing data to error-correct UMIs from the long-read sequencing data.
 
 ## Features
-- **Extract Reads**: Extracts reads from FASTQ files based on 5' and 3' motifs and UMIs.
-- **Group Reads by UMIs**: Groups reads by their 5' UMI sequences and outputs UMI-specific BAM files.
-- **Analyze UMI Hamming Distances**: Calculates and visualizes the distribution of Hamming distances between UMIs.
+- **Extract**: Extracts reads from mapped (.bam) files based on 5' and 3' motifs and UMIs and returns a .csv file containing the read name, 5' UMI sequence and 3' UMI sequence. Optionally, it will drop sequences that do not have any UMIs. As of now, this only works for dually barcoded reference sets. 
+- **Group**: Groups reads by their 5' UMI sequences and outputs UMI-specific BAM files.
+- **Whitelist**: Creates error corrected UMI data base from short-read seuqencing that can then be used to error correct long-read UMIs.
+- **Correct**: Corrects UMIs based on short-read data, allowing for error correction of long-read UMIs.
+- **Hamming**: Calculates and visualizes the distribution of Hamming distances between UMIs.
 
 ---
 
@@ -21,8 +23,8 @@ echo "Pray to anaconda gods, May the conda be on your side, and pip away from yo
 conda env create -f [env.yaml](http://_vscodecontentref_/0)
 ```
 
-If you already have a enverioment named belt then do this first:
-If you are on the belt environment deactoivate it first
+If you already have an environment named belt then do this first:
+If you are on the belt environment activate it first
 
 ```
 conda deactivate
