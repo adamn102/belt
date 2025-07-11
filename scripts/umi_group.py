@@ -4,7 +4,7 @@ from belt.scripts.utils import log
 from collections import Counter
 import os
 
-def long_read_umi_grouping(reference, alignedReads, correctedUMIs, outputDir, grouping="5p", threshold=5):
+def long_read_umi_grouping(reference, alignedReads, correctedUMIs, outputDir, grouping="5pUMI", threshold=5):
     """
     Generate grouped FASTQ files from long reads using corrected UMIs.
 
