@@ -1,6 +1,0 @@
-##fileformat=VCFv4.1
-##medaka_version=2.1.0
-##contig=<ID=LP250,length=3639>
-##FORMAT=<ID=GT,Number=1,Type=String,Description="Medaka genotype.">
-##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Medaka genotype quality score">
-#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE

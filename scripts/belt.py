@@ -1,8 +1,9 @@
 import click
-from extract import extract_UMIs
-from whitelist import umi_whitelist
-from umi_map import umi_extraction_map
-from umi_group import long_read_umi_grouping
+from belt.scripts.extract import extract_UMIs
+from belt.scripts.whitelist import umi_whitelist
+from belt.scripts.umi_map import umi_extraction_map
+from belt.scripts.umi_group import long_read_umi_grouping
+from belt.scripts.utils import *
 import yaml
 
 
