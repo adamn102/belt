@@ -81,3 +81,4 @@ output_files/UMI5_separated/UMI5_TGTTAGAAGGTG.fastq
 output_files/UMI5_separated/UMI5_TTACGCAGGTGA.fastq
 output_files/UMI5_separated/UMI5_TTGTGTTTCAAT.fastq
 output_files/UMI5_separated/UMI5_TTTTCTATATGG.fastq
+/scripts/__pycache__

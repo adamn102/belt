@@ -4,7 +4,7 @@ from pybktree import BKTree
 import pandas as pd
 
 
-def umi_extraction_map(reference, alignedReads, minReadLength, barcodeMotif, whitelist, outputDir):
+def umi_extraction_map(reference, alignedReads, minReadLength, barcodeMotif, whitelist, outputDir, max_distance=2):
     # Parse the input parameters
     sampleName = alignedReads.split("/")[-1].split(".")[0]
 
@@ -30,8 +30,8 @@ def umi_extraction_map(reference, alignedReads, minReadLength, barcodeMotif, whi
     raw_umi3_set = list(set(raw_umi3_list))
 
     # Create BK-trees for fast approximate matching
-    results5p = BK_scan(raw_umi5_set, umi5_list, max_distance=3)
-    results3p = BK_scan(raw_umi3_set, umi3_list, max_distance=3)
+    results5p = BK_scan(raw_umi5_set, umi5_list, max_distance)
+    results3p = BK_scan(raw_umi3_set, umi3_list, max_distance)
 
     # write the updated UMIs to a csv file
     out_df5p = pd.DataFrame.from_dict(results5p, orient='index', columns=['Best Match', 'Distance'])
