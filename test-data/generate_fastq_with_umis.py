@@ -17,7 +17,7 @@ def generate_reference_with_Ns(read_length, umi_length, umi5_pos, umi3_pos):
     ref[umi3_pos:umi3_pos+umi_length] = ['N'] * umi_length
     return ''.join(ref)
 
-def generate_read_with_umis(ref_seq, umi_length, umi5_pos, umi3_pos, ins_rate=0.01, del_rate=0.01):
+def generate_read_with_umis(ref_seq, umi_length, umi5_pos, umi3_pos, ins_rate=0.01, del_rate=0.01, window=5):
     read = list(ref_seq)
     qual = random_qual(len(ref_seq))
 
@@ -30,9 +30,12 @@ def generate_read_with_umis(ref_seq, umi_length, umi5_pos, umi3_pos, ins_rate=0.
     qual[umi5_pos:umi5_pos+umi_length] = [40] * umi_length
     qual[umi3_pos:umi3_pos+umi_length] = [40] * umi_length
 
-    # Apply indels around UMI positions
-    read, qual = apply_indels(read, qual, umi5_pos, window=5, ins_rate=ins_rate, del_rate=del_rate)
-    read, qual = apply_indels(read, qual, umi3_pos, window=5, ins_rate=ins_rate, del_rate=del_rate)
+    # Apply indels centered on the UMIs (can affect UMI itself)
+    center5 = umi5_pos + umi_length // 2
+    center3 = umi3_pos + umi_length // 2
+
+    read, qual = apply_indels(read, qual, center5, window=window, ins_rate=ins_rate, del_rate=del_rate)
+    read, qual = apply_indels(read, qual, center3, window=window, ins_rate=ins_rate, del_rate=del_rate)
 
     sequence = ''.join(read)
     quality_str = ''.join([chr(q + 33) for q in qual])
@@ -40,16 +43,17 @@ def generate_read_with_umis(ref_seq, umi_length, umi5_pos, umi3_pos, ins_rate=0.
     return sequence, quality_str, umi5, umi3
 
 
-def apply_indels(seq, qual, pos, window=5, ins_rate=0.01, del_rate=0.01):
+
+def apply_indels(seq, qual, center_pos, window=5, ins_rate=0.01, del_rate=0.01):
     new_seq = []
     new_qual = []
 
     for i in range(len(seq)):
-        in_window = abs(i - pos) <= window
+        in_window = abs(i - center_pos) <= window
 
         # Random deletion
         if in_window and random.random() < del_rate:
-            continue  # Skip this base (deleted)
+            continue  # skip this base (deleted)
 
         # Random insertion
         if in_window and random.random() < ins_rate:
