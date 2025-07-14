@@ -17,25 +17,53 @@ def generate_reference_with_Ns(read_length, umi_length, umi5_pos, umi3_pos):
     ref[umi3_pos:umi3_pos+umi_length] = ['N'] * umi_length
     return ''.join(ref)
 
-def generate_read_with_umis(ref_seq, umi_length, umi5_pos, umi3_pos):
+def generate_read_with_umis(ref_seq, umi_length, umi5_pos, umi3_pos, ins_rate=0.01, del_rate=0.01):
     read = list(ref_seq)
     qual = random_qual(len(ref_seq))
 
     umi5 = random_dna(umi_length)
     umi3 = random_dna(umi_length)
 
-    # Insert UMIs into reference sequence
     read[umi5_pos:umi5_pos+umi_length] = list(umi5)
     read[umi3_pos:umi3_pos+umi_length] = list(umi3)
 
-    # Set high-quality scores for UMIs
     qual[umi5_pos:umi5_pos+umi_length] = [40] * umi_length
     qual[umi3_pos:umi3_pos+umi_length] = [40] * umi_length
 
+    # Apply indels around UMI positions
+    read, qual = apply_indels(read, qual, umi5_pos, window=5, ins_rate=ins_rate, del_rate=del_rate)
+    read, qual = apply_indels(read, qual, umi3_pos, window=5, ins_rate=ins_rate, del_rate=del_rate)
+
     sequence = ''.join(read)
-    quality_str = ''.join([chr(q + 33) for q in qual])  # Phred+33 encoding
+    quality_str = ''.join([chr(q + 33) for q in qual])
 
     return sequence, quality_str, umi5, umi3
+
+
+def apply_indels(seq, qual, pos, window=5, ins_rate=0.01, del_rate=0.01):
+    new_seq = []
+    new_qual = []
+
+    for i in range(len(seq)):
+        in_window = abs(i - pos) <= window
+
+        # Random deletion
+        if in_window and random.random() < del_rate:
+            continue  # Skip this base (deleted)
+
+        # Random insertion
+        if in_window and random.random() < ins_rate:
+            inserted_base = random.choice("ACGT")
+            inserted_qual = random.randint(30, 40)
+            new_seq.append(inserted_base)
+            new_qual.append(inserted_qual)
+
+        # Add original base
+        new_seq.append(seq[i])
+        new_qual.append(qual[i])
+
+    return new_seq, new_qual
+
 
 def main(args):
     # Generate reference with Ns
@@ -86,6 +114,9 @@ if __name__ == "__main__":
     parser.add_argument("--output", type=str, default="output.fastq", help="Output FASTQ file")
     parser.add_argument("--reference_output", type=str, default="reference_with_Ns.fasta", help="Output FASTA reference with Ns")
     parser.add_argument("--umi_csv", type=str, default="umi_table.csv", help="CSV file to write UMI sequences")
+    parser.add_argument("--ins_rate", type=float, default=0.01, help="Insertion rate around UMIs")
+    parser.add_argument("--del_rate", type=float, default=0.01, help="Deletion rate around UMIs")
+
 
     
     args = parser.parse_args()
