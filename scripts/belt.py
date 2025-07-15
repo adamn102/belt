@@ -61,7 +61,7 @@ def whitelist(reference, alignment, min_read_length, motif, cluster_method, outp
 
 ## TODO Compare long read data to short read whitelist - return the % overlap with whitelist
 
-## TODO Compare long read data to long read whitelist - return the concordence rate 
+## TODO Compare long read data to long read whitelist - return the concordence rate
 
 
 @main.command()
