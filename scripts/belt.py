@@ -59,6 +59,10 @@ def whitelist(reference, alignment, min_read_length, motif, cluster_method, outp
     """Generate a whitelist of UMIs"""
     umi_whitelist(reference, alignment, min_read_length, motif, cluster_method, output_dir)
 
+## TODO Compare long read data to short read whitelist - return the % overlap with whitelist
+
+## TODO Compare long read data to long read whitelist - return the concordence rate 
+
 
 @main.command()
 @click.option('--config', required=True, help="Path to the YAML configuration file")

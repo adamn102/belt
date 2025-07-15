@@ -39,6 +39,7 @@ def umi_extraction_map(
         results5p = {umi: (umi, 0) for umi in raw_umi5_set}
         results3p = {umi: (umi, 0) for umi in raw_umi3_set}
 
+    ## NO-TODO - implement clustering logic
     elif whitelist.lower() == "cluster":
         logger.log_message("Whitelist mode set to 'cluster'. Performing UMI-tools clustering.")
         # **Placeholder for clustering**

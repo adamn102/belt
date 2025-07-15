@@ -6,6 +6,11 @@ from collections import Counter
 
 
 def umi_whitelist(reference, alignedReads, minReadLength, barcodeMotif, clusterMethod, outputDir):
+
+
+    ## TODO: Flag outliers and filter them out (write them out in a report/log).
+
+
     # Parse the input parameters
     sampleName = alignedReads.split("/")[-1].split(".")[0]
     outputDir = outputDir + "/" + sampleName
