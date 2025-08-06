@@ -1,5 +1,6 @@
 import unittest
 from belt.scripts import whitelist
+from belt.scripts import whitelist_longread
 class TestExtract(unittest.TestCase):
     def test_extract_UMIs(self):
         # Test extracting UMIs from a short read BAM file
@@ -12,6 +13,6 @@ class TestExtract(unittest.TestCase):
         outputDir = "/Users/nomur/Desktop/test-data/output"
 
         try:
-            whitelist.umi_whitelist(reference, alignment, minReadLength, motif, clusterMethod,outputDir)
+            whitelist_longread.umi_whitelist(reference, alignment, minReadLength, motif, outputDir ,clusterMethod)
         except Exception as e:
             self.fail(f"extract_UMIs raised an exception: {e}")

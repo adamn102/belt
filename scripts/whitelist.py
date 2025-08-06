@@ -320,20 +320,20 @@ def filter_outlier_barcodes(raw_umi5_list, raw_umi3_list, raw_UMI_dict):
         for read_name, umi_pair in filtered_UMI_dict.items():
             f.write(f"{umi_pair[0]},{umi_pair[1]}\n")
     print(f"Filtered UMIs written to {output_csv}")
-""" 
-    plt.hist(list(umi5_counts.values()), bins=30, alpha=0.7, label="5' UMI Counts")
-    plt.axvline(threshold5, color='red', linestyle='dashed', linewidth=2, label='Threshold')
-    mean_5 = umi5_values.mean()
-    std_5 = umi5_values.std()
-    plt.axvline(mean_5, color='green', linestyle='solid', linewidth=2, label='Mean')
-    plt.axvline(mean_5 - std_5, color='purple', linestyle='dotted', linewidth=2, label='Mean - 1 Std')
-    plt.axvline(mean_5 + std_5, color='orange', linestyle='dotted', linewidth=2, label='Mean + 1 Std')
-    plt.xlabel("Count")
-    plt.ylabel("Frequency")
-    plt.title("5' UMI Count Distribution")
-    plt.legend()
 
-    plt.savefig("/Users/nomur/Desktop/test-data/output/LP250/html")
-    plt.close() """
+    # plt.hist(list(umi5_counts.values()), bins=30, alpha=0.7, label="5' UMI Counts")
+    # plt.axvline(threshold5, color='red', linestyle='dashed', linewidth=2, label='Threshold')
+    # mean_5 = umi5_values.mean()
+    # std_5 = umi5_values.std()
+    # plt.axvline(mean_5, color='green', linestyle='solid', linewidth=2, label='Mean')
+    # plt.axvline(mean_5 - std_5, color='purple', linestyle='dotted', linewidth=2, label='Mean - 1 Std')
+    # plt.axvline(mean_5 + std_5, color='orange', linestyle='dotted', linewidth=2, label='Mean + 1 Std')
+    # plt.xlabel("Count")
+    # plt.ylabel("Frequency")
+    # plt.title("5' UMI Count Distribution")
+    # plt.legend()
+
+    # plt.savefig("/Users/nomur/Desktop/test-data/output/LP250/html")
+    # plt.close()
 
     return filtered_umi5_list, filtered_umi3_list, filtered_UMI_dict
