@@ -48,13 +48,37 @@ def umi_whitelist(reference, alignedReads, minReadLength, barcodeMotif, outputDi
                                                    corrected_UMI_dict.values()]],
               f"{outputDir}/{sampleName}_correctedUMIs_read_names.csv")
     
-    groouped_umi_dict = groupByReference(corrected_UMI_dict, reference="5pUMI")
-    write_csv(["Reference UMI", "Satelitte UMI", "Count"], [[key for key in groouped_umi_dict.keys()],
-                                              [satellite for satellite in
-                                               [list(sat_dict.keys()) for sat_dict in groouped_umi_dict.values()]],
-                                              [count for count in
-                                               [list(sat_dict.values()) for sat_dict in groouped_umi_dict.values()]]],
-              f"{outputDir}/{sampleName}_groupedUMIs_read_names.csv")
+    grouped_umi_dict = groupByReference(corrected_UMI_dict, reference="5pUMI")
+    filtered_umi_dict, scrapped_dict = filterGroups(grouped_umi_dict, COUNT_THRESHOLD=5)
+    logger.log_message(f"Grouping by reference UMI on the lists of {sampleName} with barcode {barcodeMotif} motif finished.")
+
+    # Write csv files with the grouped UMIs
+    write_csv(
+        ["Reference UMI", "Satellite UMIs"],
+        [[key for key in grouped_umi_dict.keys()],
+         [list(sat_dict.keys()) for sat_dict in grouped_umi_dict.values()]],
+        f"{outputDir}/{sampleName}_groupedUMIs.csv"
+    )
+    
+    with open(f"{outputDir}/{sampleName}_filteredUMIs.tsv", "w") as f:
+        f.write("Reference UMI\tSatellite UMIs\tCounts\tEntropy\n")
+        for key, entry in filtered_umi_dict.items():
+            satellites = entry["satellites"]
+            entropy = entry["entropy"]
+            satellite_umis = repr(list(satellites.keys()))
+            counts = repr(list(satellites.values()))
+            f.write(f"{key}\t{satellite_umis}\t{counts}\t{entropy}\n")
+
+    with open(f"{outputDir}/{sampleName}_scrappedUMIs.tsv", "w") as f:
+        f.write("Reference UMI\tSatellite UMIs\tCounts\tEntropy\n")
+        for key, entry in scrapped_dict.items():
+            satellites = entry["satellites"]
+            entropy = entry["entropy"]
+            satellite_umis = repr(list(satellites.keys()))
+            counts = repr(list(satellites.values()))
+            f.write(f"{key}\t{satellite_umis}\t{counts}\t{entropy}\n")
+
+
     logger.log_message(f"Grouping by reference UMI on the dictionaries of {sampleName} with barcode {barcodeMotif} motif finished.")
 
 
@@ -124,3 +148,43 @@ def groupByReference(umi_dict, reference="5pUMI"):
             grouped_umis[key][satellite] = 0
         grouped_umis[key][satellite] += 1
     return grouped_umis
+
+def filterGroups(grouped_dict, COUNT_THRESHOLD=4):
+    """
+    Filters groups based on a threshold. Also calculates the entropy for each group.
+    Adds the entropy value to each key in the returned dictionaries.
+    :param grouped_dict: Dictionary with grouped UMIs.
+    :return: Filtered dictionary and scrapped_dict.
+    """
+    filtered_dict = {}
+    scrapped_dict = {}
+    entropy_list = []
+
+    for key, satellites in grouped_dict.items():
+        counts = np.array(list(satellites.values()))
+        if counts.sum() > 0:
+            probabilities = counts / counts.sum()
+            entropy = -np.sum(probabilities * np.log(probabilities + 1e-10))/np.log(len(counts))
+            if entropy < 1e-10 or len(counts) == 1:
+                entropy = 0
+            else:
+                entropy_list.append(entropy)
+        else:
+            entropy = 0
+
+        entry = {"satellites": satellites, "entropy": entropy}
+        if sum(satellites.values()) >= COUNT_THRESHOLD and key != "" and satellites != "" and entropy < 0.66:
+            filtered_dict[key] = entry
+        else:
+            scrapped_dict[key] = entry
+    #Plot the entropy distribution
+    plt.hist(entropy_list, bins=100, color='blue', alpha=0.7)
+    plt.xlabel('Entropy')
+    plt.ylabel('Frequency')
+    plt.yscale('log')
+    #plt.xscale('log')
+    plt.xlim(0, 3)
+    plt.title('Entropy Distribution of UMIs')
+    plt.savefig(f"/Users/nomur/Desktop/test-data/output/LP250/entropy_distribution.png")
+    plt.close()
+    return filtered_dict, scrapped_dict
