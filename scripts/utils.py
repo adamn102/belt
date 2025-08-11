@@ -50,6 +50,20 @@ class log:
         current_time_str = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
         self.log_history.append(f"[BELT][{current_time_str}] Log written to {output_file}")
 
+    def whitelist_summary_statistics(self, stats: dict):
+        """
+        Logs detailed UMI processing summary statistics.
+        :param stats: Dictionary containing key summary statistics.
+        """
+        current_time_str = datetime.now().strftime("%m/%d/%Y, %H:%M:%S")
+        msg_lines = [f"[BELT][{current_time_str}] Summary statistics:"]
+
+        for key, value in stats.items():
+            msg_lines.append(f"{key}: {value}")
+        
+        full_msg = "\n".join(msg_lines)
+        print(full_msg)
+        self.log_history.append(full_msg)
      
 class calculator:
 

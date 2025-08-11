@@ -78,10 +78,25 @@ def umi_whitelist(reference, alignedReads, minReadLength, barcodeMotif, outputDi
             counts = repr(list(satellites.values()))
             f.write(f"{key}\t{satellite_umis}\t{counts}\t{entropy}\n")
 
-
     logger.log_message(f"Grouping by reference UMI on the dictionaries of {sampleName} with barcode {barcodeMotif} motif finished.")
+    
+    stats = {
+    "Sample": sampleName,
+    "Total input reads": len(raw_UMI_dict),
+    "Passed filter (with both UMIs)": len(corrected_UMI_dict),
+    "Unique raw 5' UMIs": len(set(raw_umi5_list)),
+    "Unique raw 3' UMIs": len(set(raw_umi3_list)),
+    "5' UMI clusters": len(umi5p_clusters),
+    "3' UMI clusters": len(umi3p_clusters),
+    "UMI groups formed (5' as ref)": len(grouped_umi_dict),
+    "Filtered UMI groups (kept)": len(filtered_umi_dict),
+    "Scrapped UMI groups": len(scrapped_dict),
+    "Whitelist written": f"{outputDir}/{sampleName}_whitelistedUMIs.csv"
+    }
 
+    logger.whitelist_summary_statistics(stats)
 
+    whitelist_longread(filtered_umi_dict, f"{outputDir}/{sampleName}_whitelist.csv")
 
 
 def umi_clustering(umi_list):
@@ -121,6 +136,13 @@ def correct_UMI_dict(raw_UMI_dict, correction_dict_5p, correction_dict_3p):
 def groupByReference(umi_dict, reference="5pUMI"):
     """
     Groups UMIs by their reference sequence.
+    - filtered_umi_dict: dict of structure {
+          "reference_UMI": {
+              "satellites": {"sat1": count1, "sat2": count2, ...},
+              "entropy": float
+          },
+          ...
+      }
     :param umi_dict: Dictionary with read names as keys and UMIs as values.
     :param reference: Reference sequence to group by (default is "5pUMI").
     :return: Dictionary with grouped UMIs.
@@ -188,3 +210,31 @@ def filterGroups(grouped_dict, COUNT_THRESHOLD=4):
     plt.savefig(f"/Users/nomur/Desktop/test-data/output/LP250/entropy_distribution.png")
     plt.close()
     return filtered_dict, scrapped_dict
+
+def whitelist_longread(filtered_umi_dict,output_path):
+    import csv
+    """
+    Function to generate the CSV file with whitelisted UMIs from long-read sequencing data.
+    Selects the satellite UMI with the highest count for each reference UMI.
+
+    Parameters:
+    - filtered_umi_dict: dict of structure {
+          "reference_UMI": {
+              "satellites": {"sat1": count1, "sat2": count2, ...},
+              "entropy": float
+          },
+          ...
+      }
+    - output_path: Full path to write the output CSV file
+    """
+       
+    with open(output_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Reference UMI", "Most Frequent Satellite UMI", "Count"])
+
+        for ref_umi, data in filtered_umi_dict.items():
+            satellites = data["satellites"]
+            if satellites:
+                # Get satellite with highest count
+                most_frequent_satellite = max(satellites.items(), key=lambda x: x[1])
+                writer.writerow([ref_umi, most_frequent_satellite[0], most_frequent_satellite[1]])
