@@ -31,9 +31,10 @@ def extract(reference, alignment, min_read_length, motif, output):
 @click.option('--min_read_length', default=2000, type=int, help="Minimum expected read length")
 @click.option('--motif', required=True, help="Motif for UMI extraction")
 @click.option('--output_dir', required=True, help="Output directory")
-def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir):
+@click.option('--analysis_out', required=False, default="analysis", help="Analysis output directory")
+def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir, analysis_out):
     """Map UMIs to a whitelist and generate paired UMI output"""
-    umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir)
+    umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir, analysis_out)
 
 
 @main.command()

@@ -4,6 +4,8 @@ import numpy as np
 from itertools import combinations
 from collections import Counter
 import plotly.graph_objects as go
+from umi_tools import UMIClusterer
+
 
 class log:
     def __init__(self): # initializes the log, and starts the log history
@@ -270,4 +272,52 @@ class calculator:
         return -sum(p * np.log2(p) for p in probabilities if p > 0) 
     
     
-        
+def umi_clustering(umi_list):
+    """
+    Wrapper function for UMI clustering using UMIClusterer.
+    Pass in a list of raw UMIs and return a dictionary with corrected UMIs as keys and uncorrected UMIs as values (list).
+    :param umi_list:
+    :return:
+    """
+
+    # Create the UMI Clusterer instance and cluster the UMIs
+    umi_cluster = UMIClusterer(cluster_method="adjacency")
+    umi_counter = Counter(umi_list)
+    values = list(umi_counter.values())
+    keys = list(umi_counter.keys())
+    bit_keys = [umi.encode("utf-8") for umi in keys]
+    umi_count_dict = dict(zip(bit_keys, values))
+    clustered_umis = umi_cluster(umi_count_dict, 1)
+
+    # Create a dictionary with corrected UMIs as keys and uncorrected UMIs as values (list)
+    umi_corrected_dict = {}
+    for cluster in clustered_umis:
+        primary_umi = cluster[0].decode('utf-8')  # The primary (corrected) UMI
+        umi_corrected_dict[primary_umi] = [umi.decode('utf-8') for umi in cluster]  # All UMIs in the cluster
+
+    return umi_corrected_dict
+
+def correct_UMI_dict(raw_UMI_dict, correction_dict_5p, correction_dict_3p):
+    """
+    Corrects the 5' and 3' UMIs in the raw UMI dictionary using the provided correction dictionaries.
+    Returns a dictionary of the corrected UMIs, where each key is the read name and the value is a dictionary with corrected 5' and 3' UMIs.
+    :param raw_UMI_dict:
+    :param correction_dict_5p:
+    :param correction_dict_3p:
+    :return:
+    """
+    corrected_dict = {}
+    for read_name, umi_pair in raw_UMI_dict.items():
+        umi5p, umi3p = umi_pair
+        # Correct 5p UMI
+        corrected_5p = next(
+            (corr for corr, uncorrected_list in correction_dict_5p.items() if umi5p in uncorrected_list),
+            umi5p
+        )
+        # Correct 3p UMI
+        corrected_3p = next(
+            (corr for corr, uncorrected_list in correction_dict_3p.items() if umi3p in uncorrected_list),
+            umi3p
+        )
+        corrected_dict[read_name] = [corrected_5p, corrected_3p]
+    return corrected_dict
