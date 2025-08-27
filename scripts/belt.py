@@ -2,7 +2,7 @@ import click
 from belt.scripts.extract import extract_UMIs
 from belt.scripts.whitelist import umi_whitelist
 from belt.scripts.umi_map import umi_extraction_map
-from belt.scripts.umi_group import long_read_umi_grouping
+from belt.scripts.umi_group import long_read_umi_grouping_fast
 from belt.scripts.utils import *
 import yaml
 
@@ -46,7 +46,7 @@ def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir,
 @click.option('--threshold', default=10, type=int, help="Threshold for grouping")
 def umi_group(reference, alignment, corrected_umis, output_dir, grouping, threshold):
     """Group long-read UMIs based on corrected UMI data"""
-    long_read_umi_grouping(reference, alignment, corrected_umis, output_dir, grouping, threshold)
+    long_read_umi_grouping_fast(reference, alignment, corrected_umis, output_dir, grouping, threshold)
 
 
 @main.command()
@@ -85,7 +85,7 @@ def run_pipeline(config):
         config_data['whitelist'],
         config_data['output_dir']
     )
-    long_read_umi_grouping(
+    long_read_umi_grouping_fast(
         config_data['reference'],
         config_data['alignment'],
         config_data['corrected_umis'],

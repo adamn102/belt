@@ -8,15 +8,16 @@ import pandas as pd
 import os
 import numpy as np
 
+
 def umi_extraction_map(
-    reference,
-    alignedReads,
-    minReadLength,
-    barcodeMotif,
-    whitelist,
-    outputDir,
-    analysisOut,
-    max_distance=2
+        reference,
+        alignedReads,
+        minReadLength,
+        barcodeMotif,
+        whitelist,
+        outputDir,
+        analysisOut,
+        max_distance=1
 ):
     sampleName = os.path.basename(alignedReads).split(".")[0]
 
@@ -55,7 +56,8 @@ def umi_extraction_map(
 
         logger.log_message(f"UMI correction on the lists of {sampleName} with barcode {barcodeMotif} motif finished.")
         corrected_UMI_dict = correct_UMI_dict(raw_UMI_dict, umi5p_clusters, umi3p_clusters)
-        logger.log_message(f"UMI correction on the dictionaries of {sampleName} with barcode {barcodeMotif} motif finished.")
+        logger.log_message(
+            f"UMI correction on the dictionaries of {sampleName} with barcode {barcodeMotif} motif finished.")
 
     else:
         logger.log_message("Mapping raw UMIs to whitelist...")
@@ -119,6 +121,7 @@ def umi_extraction_map(
         f"Grouping by reference UMI on the lists of {sampleName} with barcode {barcodeMotif} motif finished."
     )
 
+
 def groupByReference(umi_dict, reference="5pUMI"):
     """
     Groups UMIs by their reference sequence.
@@ -139,6 +142,7 @@ def groupByReference(umi_dict, reference="5pUMI"):
             grouped_umis[key] = {}
         grouped_umis[key][satellite] = grouped_umis[key].get(satellite, 0) + 1
     return grouped_umis
+
 
 def filterGroups(grouped_dict, COUNT_THRESHOLD=5):
     """
@@ -167,22 +171,68 @@ def filterGroups(grouped_dict, COUNT_THRESHOLD=5):
 
     return filtered_dict, scrapped_dict
 
+
 def string_hamming(s1, s2):
     """Compute Hamming distance between two strings of equal length."""
     if len(s1) != len(s2):
         raise ValueError("Strings must be the same length for Hamming distance.")
     return sum(ch1 != ch2 for ch1, ch2 in zip(s1, s2))
 
-def BK_scan(experimental_umis, whitelist, max_distance=2):
-    """Find best approximate match in whitelist for each UMI."""
-    tree = BKTree(string_hamming, whitelist)
-    results = dict()
-    for umi in experimental_umis:
+
+# def BK_scan(experimental_umis, whitelist, max_distance=1):
+#     """Find best approximate match in whitelist for each UMI."""
+#     tree = BKTree(string_hamming, whitelist)
+#     results = dict()
+#     for umi in experimental_umis:
+#         matches = tree.find(umi, max_distance)
+#         if not matches:
+#             results[umi] = (umi, "NoMatch")
+#         else:
+#             best_match = min(matches, key=lambda x: x[0])
+#             distance, matched_umi = best_match
+#             results[umi] = (matched_umi, distance)
+#     return results
+
+def BK_scan(experimental_umis, whitelist, max_distance=1):
+    """Find best approximate match in whitelist for each UMI (with dedup + exact-match fast path)."""
+    # Dedup whitelist too (just in case) and build helpers
+    wl_unique = list(dict.fromkeys(whitelist))
+    wl_set = set(wl_unique)
+    print(len(wl_set), "unique whitelist UMIs")
+    tree = BKTree(string_hamming, wl_unique)
+
+    # Dedup queries but preserve order
+    dedup = list(dict.fromkeys(experimental_umis))
+    print(len(dedup), "unique experimental UMIs")
+
+    # Scan only once per unique UMI
+    uniq_results = {}
+    for umi in dedup:
+        # O(1) exact match
+        if umi in wl_set:
+            uniq_results[umi] = (umi, 0)
+            continue
+
         matches = tree.find(umi, max_distance)
         if not matches:
-            results[umi] = (umi, "NoMatch")
+            uniq_results[umi] = (umi, "NoMatch")
         else:
-            best_match = min(matches, key=lambda x: x[0])
-            distance, matched_umi = best_match
-            results[umi] = (matched_umi, distance)
-    return results
+            # deterministic tie-break: smallest distance, then lexicographically smallest UMI
+            min_dist = min(d for d, _m in matches)
+            best = min(m for d, m in matches if d == min_dist)
+            uniq_results[umi] = (best, min_dist)
+
+    # Expand back to all input UMIs (duplicates included)
+    return {umi: uniq_results[umi] for umi in experimental_umis}
+
+def load_whitelist(whitelist_file):
+    """Load whitelist CSV into two lists of UMIs."""
+    try:
+        whitelist = pd.read_csv(whitelist_file)
+        whitelist_5pUMI = whitelist["5pUMI"].dropna()
+        whitelist_3pUMI = whitelist["3pUMI"].dropna()
+        if whitelist_5pUMI.empty or whitelist_3pUMI.empty:
+            raise ValueError("Whitelist file missing required columns or empty.")
+        return whitelist_5pUMI, whitelist_3pUMI
+    except FileNotFoundError:
+        raise ValueError(f"Whitelist file {whitelist_file} not found.")
