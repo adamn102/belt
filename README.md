@@ -3,11 +3,13 @@ BELT - BalazsLab Error-correction Longread Tools
 BELT is a toolkit designed for processing and analyzing long-read sequencing data. It provides functionality for extracting reads based on motifs and UMIs (Unique Molecular Identifiers), grouping reads by UMIs, and analyzing UMI distributions. BELT also allows for the integration of short-read sequencing data to error-correct UMIs from the long-read sequencing data.
 
 ## Features
-- **Extract**: Extracts reads from mapped (.bam) files based on 5' and 3' motifs and UMIs and returns a .csv file containing the read name, 5' UMI sequence and 3' UMI sequence. Optionally, it will drop sequences that do not have any UMIs. As of now, this only works for dually barcoded reference sets. 
-- **Group**: Groups reads by their 5' UMI sequences and outputs UMI-specific BAM files.
-- **Whitelist**: Creates error corrected UMI data base from short-read seuqencing that can then be used to error correct long-read UMIs.
-- **Correct**: Corrects UMIs based on short-read data, allowing for error correction of long-read UMIs.
-- **Hamming**: Calculates and visualizes the distribution of Hamming distances between UMIs.
+- **umi-map**: Extracts UMIs from mapped reads (.bam) using a given UMI motif, corrects potential UMI errors, and returns a .csv file containing read names and their associated UMI sequences. Currently supports dually barcoded reference sets where both UMIs share the same UMI pattern (e.g. NNNNNNNNN)
+- **umi** (Update to umi-group): Groups reads by their UMI sequences and a sorted UMI tag BAM files with each read tagged by a specific UMI
+
+
+- **Whitelist**: Creates an error-corrected UMI database from short-read sequencing data. This database serves as a reference for correcting UMIs in long-read data.
+- **Correct**: Performs error correction on long-read UMIs by comparing them against the whitelist database generated from short-read data, improving UMI accuracy.
+- **Hamming**: Analyzes UMI similarity by calculating Hamming distances between UMI sequences. Includes visualization tools to display the distribution of these distances.
 
 ---
 
