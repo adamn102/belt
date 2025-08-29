@@ -1,6 +1,6 @@
 #!/bin/bash
 # BELT Demo Pipeline Runner
-# This script runs the complete BELT demo pipeline
+# This script runs the complete BELT demo pipeline using conda
 
 set -e  # Exit on any error
 
@@ -14,6 +14,43 @@ if [ ! -f "Snakefile" ]; then
     exit 1
 fi
 
+# Check if conda/mamba is available
+if ! command -v conda &> /dev/null && ! command -v mamba &> /dev/null; then
+    echo "❌ Error: Neither conda nor mamba found"
+    echo "   Please install conda or mamba first:"
+    echo "   https://docs.conda.io/en/latest/miniconda.html"
+    echo "   or https://mamba.readthedocs.io/en/latest/installation.html"
+    exit 1
+fi
+
+# Use mamba if available, otherwise conda
+if command -v mamba &> /dev/null; then
+    CONDA_CMD="mamba"
+    echo "✅ Using mamba for environment management"
+else
+    CONDA_CMD="conda"
+    echo "✅ Using conda for environment management"
+fi
+
+# Check if conda environment exists
+ENV_NAME="barcoded_hiv_long"
+if ! $CONDA_CMD env list | grep -q "^$ENV_NAME "; then
+    echo "📋 Creating conda environment..."
+    $CONDA_CMD env create -f environment.yml
+    if [ $? -ne 0 ]; then
+        echo "❌ Failed to create conda environment"
+        exit 1
+    fi
+    echo "✅ Conda environment created successfully"
+else
+    echo "✅ Conda environment already exists"
+fi
+
+# Activate conda environment
+echo "🔧 Activating conda environment..."
+source $($CONDA_CMD info --base)/etc/profile.d/conda.sh
+conda activate $ENV_NAME
+
 # Check if setup has been run
 if [ ! -d "data/1-fastq_files" ] || [ ! -f "data/1-fastq_files/B145-XTMMF9-12.fastq" ]; then
     echo "📋 Setting up demo environment..."
@@ -24,13 +61,13 @@ if [ ! -d "data/1-fastq_files" ] || [ ! -f "data/1-fastq_files/B145-XTMMF9-12.fa
     fi
 fi
 
-# Check for required tools
-echo "🔍 Checking required tools..."
+# Check for required tools in conda environment
+echo "🔍 Checking required tools in conda environment..."
 tools_missing=0
 
-for tool in snakemake minimap2 samtools; do
+for tool in snakemake minimap2 samtools fastplong; do
     if ! command -v $tool &> /dev/null; then
-        echo "   ❌ $tool not found"
+        echo "   ❌ $tool not found in conda environment"
         tools_missing=1
     else
         echo "   ✅ $tool found"
@@ -39,18 +76,22 @@ done
 
 if [ $tools_missing -eq 1 ]; then
     echo ""
-    echo "⚠️  Some required tools are missing. Please install:"
-    echo "   pip install snakemake"
-    echo "   conda install -c bioconda minimap2 samtools"
-    echo "   # or install via your system package manager"
+    echo "⚠️  Some required tools are missing from the conda environment."
+    echo "   Try updating the environment:"
+    echo "   $CONDA_CMD env update -f environment.yml"
     exit 1
 fi
 
 # Check for BELT
 if ! command -v belt &> /dev/null && [ ! -f "../belt.py" ]; then
     echo "   ❌ BELT not found"
-    echo "   Please install BELT first: ../install.sh"
-    exit 1
+    echo "   Installing BELT in conda environment..."
+    pip install -e ..
+    if [ $? -ne 0 ]; then
+        echo "   ❌ Failed to install BELT"
+        exit 1
+    fi
+    echo "   ✅ BELT installed successfully"
 else
     echo "   ✅ BELT found"
 fi
@@ -78,6 +119,9 @@ if [ $? -eq 0 ]; then
     echo "   - Pipeline summary: demo_summary.txt"
     echo ""
     echo "📝 Check demo_summary.txt for detailed results"
+    echo ""
+    echo "🔧 To deactivate the conda environment:"
+    echo "   conda deactivate"
 else
     echo ""
     echo "❌ Pipeline failed. Check the logs in data/logs/"

@@ -70,7 +70,9 @@ def main():
             subprocess.run(cmd, shell=True, check=True)
             print(f"   ✅ FASTQ created: {fastq_dest.name}")
         except (subprocess.CalledProcessError, FileNotFoundError):
-            print("   ⚠️  samtools not available, creating dummy FASTQ...")
+            print("   ⚠️  samtools not available in current environment")
+            print("   💡 This is normal if conda environment isn't activated yet")
+            print("   🔄 Creating dummy FASTQ for now...")
             # Create a dummy FASTQ file for demo purposes
             create_dummy_fastq(fastq_dest)
     else:

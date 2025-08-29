@@ -43,29 +43,41 @@ demo/
 
 ### Prerequisites
 
-1. **BELT installed** - Follow the main README installation instructions
-2. **Snakemake** - Install with `pip install snakemake`
-3. **External tools**:
-   - `minimap2` - For read mapping
-   - `samtools` - For BAM file manipulation
-   - `fastplong` - For quality filtering
+1. **Conda or Mamba** - For environment management
+   - Install [Miniconda](https://docs.conda.io/en/latest/miniconda.html) or [Mamba](https://mamba.readthedocs.io/en/latest/installation.html)
+2. **Git** - For cloning the repository
 
 ### Running the Demo
 
-1. **Setup the demo environment:**
+1. **Clone and navigate to demo:**
    ```bash
    cd demo
-   python scripts/demo_setup.py
    ```
 
-2. **Run the pipeline:**
+2. **Run the complete demo:**
    ```bash
    ./run_demo.sh
    ```
 
+The script will automatically:
+- Create a conda environment with all required tools
+- Install BELT in the environment
+- Set up test data
+- Run the complete pipeline
+
 3. **Or run manually:**
    ```bash
-   snakemake --cores 4 --use-conda
+   # Create environment
+   conda env create -f environment.yml
+   
+   # Activate environment
+   conda activate barcoded_hiv_long
+   
+   # Setup data
+   python scripts/demo_setup.py
+   
+   # Run pipeline
+   snakemake --cores 4
    ```
 
 ## 📊 Demo Data
@@ -126,14 +138,27 @@ After running the demo, you should see:
 
 ### Common Issues
 
-1. **Missing dependencies**: Install required tools
-2. **Memory issues**: Reduce `--cores` parameter
-3. **File permissions**: Ensure write access to demo directory
+1. **Conda environment issues**: 
+   ```bash
+   # Recreate environment
+   conda env remove -n barcoded_hiv_long
+   conda env create -f environment.yml
+   ```
+
+2. **Missing tools in environment**:
+   ```bash
+   # Update environment
+   conda env update -f environment.yml
+   ```
+
+3. **Memory issues**: Reduce `--cores` parameter in snakemake command
+4. **File permissions**: Ensure write access to demo directory
 
 ### Getting Help
 
 - Check the logs in `data/logs/`
 - Review the Snakemake dry-run: `snakemake -n`
+- Ensure conda environment is activated: `conda activate barcoded_hiv_long`
 - Consult the main BELT documentation
 
 ## 🎓 Learning Resources

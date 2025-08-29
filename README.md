@@ -56,11 +56,11 @@ Want to see BELT in action? Run the complete demo pipeline:
 # Navigate to the demo directory
 cd demo
 
-# Set up and run the demo
+# Run the complete demo (automatically sets up conda environment)
 ./run_demo.sh
 ```
 
-The demo processes real test data through the entire BELT workflow and serves as a template for your own pipelines. See the [demo documentation](demo/README.md) for details.
+The demo automatically creates a conda environment with all required tools and processes real test data through the entire BELT workflow. It serves as both a learning tool and a template for your own pipelines. See the [demo documentation](demo/README.md) for details.
 
 ## Usage
 

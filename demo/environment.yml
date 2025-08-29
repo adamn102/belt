@@ -1,0 +1,25 @@
+name: barcoded_hiv_long
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - mamba
+  - snakemake
+  - biopython
+  - python>=3.10
+  - minimap2
+  - fastplong
+  - samtools
+  - pandas
+  - coincbc
+  - pip
+  - pip:
+    - pyasyncore
+    - pyasynchat
+    - pysam
+    - openpyxl
+    - pandas
+    - numpy
+    - plotly
+    - umi_tools
+  
