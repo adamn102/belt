@@ -1,0 +1,10 @@
+#!/bin/bash
+
+# BELT command wrapper
+# This script allows you to run 'belt' from anywhere
+
+# Get the directory where this script is located
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Run the belt.py script
+python3 "$SCRIPT_DIR/belt.py" "$@"

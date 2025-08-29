@@ -1,60 +1,238 @@
-BELT - BalazsLab Error-correction Longread Tools
+# BELT - BalazsLab Error-correction Longread Tools
 
 BELT is a toolkit designed for processing and analyzing long-read sequencing data. It provides functionality for extracting reads based on motifs and UMIs (Unique Molecular Identifiers), grouping reads by UMIs, and analyzing UMI distributions. BELT also allows for the integration of short-read sequencing data to error-correct UMIs from the long-read sequencing data.
 
 ## Features
-- **umi-map**: Extracts UMIs from mapped reads (.bam) using a given UMI motif, corrects potential UMI errors, and returns a .csv file containing read names and their associated UMI sequences. Currently supports dually barcoded reference sets where both UMIs share the same UMI pattern (e.g. NNNNNNNNN)
-- **umi** (Update to umi-group): Groups reads by their UMI sequences and a sorted UMI tag BAM files with each read tagged by a specific UMI
 
+- **extract**: Extract reads based on motifs and UMIs from BAM files
+- **umi-map**: Map UMIs to a whitelist and generate paired UMI output
+- **umi-group**: Group long-read UMIs based on corrected UMI data
+- **whitelist**: Generate a whitelist of UMIs from sequencing data
+- **run-pipeline**: Run the entire pipeline using a configuration file
 
-- **Whitelist**: Creates an error-corrected UMI database from short-read sequencing data. This database serves as a reference for correcting UMIs in long-read data.
-- **Correct**: Performs error correction on long-read UMIs by comparing them against the whitelist database generated from short-read data, improving UMI accuracy.
-- **Hamming**: Analyzes UMI similarity by calculating Hamming distances between UMI sequences. Includes visualization tools to display the distribution of these distances.
+## Quick Start
 
----
+### Prerequisites
 
-## Installation
-1. Clone the repository:
+- Python 3.8 or higher
+- Git
+
+### Installation
+
+1. **Clone the repository:**
+   ```bash
+   git clone https://github.com/adamn102/belt
+   cd belt
+   ```
+
+2. **Set up the development environment:**
+   ```bash
+   # Run the automated setup script
+   ./install.sh
+   ```
+
+3. **Activate the virtual environment:**
+   ```bash
+   source .venv/bin/activate
+   ```
+
+4. **Verify installation:**
+   ```bash
+   ./belt.py --help
+   ```
+
+That's it! You're ready to use BELT.
+
+## Usage
+
+### Getting Help
+
+```bash
+# Show all available commands
+./belt.py --help
+
+# Show help for a specific command
+./belt.py extract --help
+./belt.py umi-map --help
+./belt.py umi-group --help
+./belt.py whitelist --help
+./belt.py run-pipeline --help
 ```
-git clone https://github.com/adamn102/belt
+
+### Command Examples
+
+#### Extract Command
+Extract reads based on motifs and UMIs:
+
+```bash
+./belt.py extract \
+  --reference reference.fasta \
+  --alignment input.bam \
+  --output output.bam \
+  --min_read_length 3900 \
+  --motif NNNNNNNNNNNN
 ```
 
-2. Install dependencies, and set up environment
-```
-echo "Pray to anaconda gods, May the conda be on your side, and pip away from you!"
-conda env create -f [env.yaml](http://_vscodecontentref_/0)
-```
+#### UMI Map Command
+Map UMIs to a whitelist and generate paired UMI output:
 
-If you already have an environment named belt then do this first:
-If you are on the belt environment activate it first
-
-```
-conda deactivate
-```
-
-```
-conda remove -n belt --all
+```bash
+./belt.py umi-map \
+  --whitelist whitelist.csv \
+  --reference reference.fasta \
+  --alignment input.bam \
+  --motif NNNNNNNNNNNN \
+  --output_dir output_directory \
+  --min_read_length 2000
 ```
 
+#### UMI Group Command
+Group long-read UMIs based on corrected UMI data:
 
-### Old Notes 
-TODO: sort through these later
+```bash
+./belt.py umi-group \
+  --reference reference.fasta \
+  --alignment input.bam \
+  --corrected_umis corrected_umis.csv \
+  --output_dir output_directory \
+  --grouping 5pUMI \
+  --threshold 10
 ```
-python3 belt.py extract input.fastq --config config.yaml
+
+#### Whitelist Command
+Generate a whitelist of UMIs:
+
+```bash
+./belt.py whitelist \
+  --reference reference.fasta \
+  --alignment input.bam \
+  --motif NNNNNNNNNNNN \
+  --output_dir output_directory \
+  --min_read_length 250
 ```
 
-Alternatively you can override anything in the config file by adding the flag as well. Eg:
+#### Run Pipeline Command
+Run the entire pipeline using a configuration file:
+
+```bash
+./belt.py run-pipeline --config config.yaml
+```
+
+Example configuration file (`config.yaml`):
+```yaml
+reference: reference.fasta
+alignment: input.bam
+min_read_length: 3900
+motif: NNNNNNNNNNNN
+output: output.bam
+whitelist: whitelist.csv
+output_dir: output_directory
+corrected_umis: corrected_umis.csv
+grouping: 5pUMI
+threshold: 10
+```
+
+## Development
+
+### Manual Setup (Alternative)
+
+If you prefer to set up manually instead of using the automated script:
+
+```bash
+# Create virtual environment
+python3 -m venv .venv
+source .venv/bin/activate  # On Unix/macOS
+# or
+.venv\Scripts\activate     # On Windows
+
+# Install dependencies
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Install BELT in development mode
+pip install -e .
+```
+
+### Testing
+
+Run tests to ensure everything works:
+
+```bash
+# Run all tests
+python -m pytest tests/
+
+# Run with coverage
+python -m pytest tests/ --cov=scripts
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Command not found:**
+- Make sure the virtual environment is activated: `source .venv/bin/activate`
+- Try running `./belt.py` instead of `belt`
+
+**Import errors:**
+- Reinstall dependencies: `pip install -r requirements.txt`
+- Reinstall the package: `pip install -e .`
+
+**Permission errors:**
+```bash
+chmod +x belt.py
+chmod +x install.sh
+```
+
+### Getting Help
+
+- Check the [Development Guide](DEVELOPMENT.md) for detailed setup instructions
+- Look at the test files in the `tests/` directory for examples
+- Create an issue in the repository if you encounter problems
+
+## Project Structure
 
 ```
-python3 belt.py extract reads.fastq --config config.yaml --fuzzy 4
+belt/
+├── belt.py              # Main entry point
+├── install.sh           # Automated setup script
+├── requirements.txt     # Python dependencies
+├── setup.py            # Package configuration
+├── scripts/            # Main BELT scripts
+│   ├── belt.py         # CLI implementation
+│   ├── extract.py      # Extract functionality
+│   ├── umi_map.py      # UMI mapping
+│   ├── umi_group.py    # UMI grouping
+│   ├── whitelist.py    # Whitelist generation
+│   └── utils.py        # Utility functions
+├── test-data/          # Test data files
+├── tests/              # Test files
+└── .venv/              # Virtual environment (created by setup)
 ```
 
-Note to nartsav: /Users/nomur/GitHub/test_data_belt/test_data/filtered_fastq_files/NL43-test.fastq
+## Contributing
 
-python3 belt.py extract /Users/nomur/GitHub/test_data_belt/test_data/raw_fastq_files/NL43-test.fastq --config config.yaml
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
-python3 belt.py extract /Users/nartsavomur/Desktop/tmp_server_files/tests/test_data/raw_fastq_files/NL43-test.fastq --config config.yaml
+## License
 
-ref = /Users/nomur/GitHub/test_data_belt/ERR-Seq-v2.4-NL4-3-Env-Plus-Reference.fasta
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-python3 belt.py extract --reference /Users/nartsavomur/Desktop/tmp_server_files/tests/ESV24-NL43-EnvPlus-Library-Quantized/ESV24-NL43-EnvPlus-Library-Reference.fasta --alignment /Users/nartsavomur/Desktop/tmp_server_files/tests/ESV24-NL43-EnvPlus-Library-Quantized/ESV24-NL43-EnvPlus-Library-sorted.bam --output /Users/nartsavomur/Desktop/tmp_server_files/tests/ESV24-NL43-EnvPlus-Library-Quantized
+## Citation
+
+If you use BELT in your research, please cite:
+
+```
+BELT: BalazsLab Error-correction Longread Tools
+https://github.com/adamn102/belt
+```
+
+## Support
+
+For questions and support:
+- Check this README and the [Development Guide](DEVELOPMENT.md)
+- Look at the test files for usage examples
+- Create an issue in the repository
