@@ -9,22 +9,22 @@ samples:
 # Barcode motifs for UMI extraction
 # These patterns define where UMIs are located in the reference sequence
 barcodes:
-  B145-XTMMF9-12: NNNNNNNNNNNNN  # 13 N's as seen in the B145 reference
+  B145-XTMMF9-12: NNNNNNNNNNNNNNM
 
 # Minimum read lengths for quality filtering
 # Reads shorter than this will be filtered out
 min_lengths:
-  B145-XTMMF9-12: 2000
+  B145-XTMMF9-12: 1000
 
 # UMI whitelist settings
 # Options: "false" (no whitelist), "cluster" (use clustering), or filename
 whitelist:
-  B145-XTMMF9-12: false  # Use clustering instead of whitelist for demo
+  B145-XTMMF9-12: "false"  # Use clustering instead of whitelist for demo
 
 # Pipeline parameters
 pipeline:
   # Number of threads for parallel processing
-  threads: 4
+  threads: 1
   
   # Quality filtering parameters
   quality:

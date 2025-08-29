@@ -23,7 +23,8 @@ setup(
     author="BalazsLab",
     author_email="your.email@example.com",
     url="https://github.com/yourusername/belt",
-    packages=find_packages(),
+    packages=find_packages() + ['scripts'],
+    package_dir={'scripts': 'scripts'},
     include_package_data=True,
     install_requires=[
         "click>=8.0.0",
@@ -32,7 +33,7 @@ setup(
     python_requires=">=3.8",
     entry_points={
         'console_scripts': [
-            'belt=__main__:main',
+            'belt=scripts.belt:main',
         ],
     },
     classifiers=[

@@ -42,6 +42,12 @@ def get_reference(wildcards):
     """Get reference file for a sample"""
     return f"data/0-reference_sequence/{wildcards.sample}.fa"
 
+def get_consensus_reference(wildcards):
+    """Get consensus reference file for a sample"""
+    # Extract the base name (e.g., B145 from B145-XTMMF9-12)    
+    base_name = wildcards.sample.split('-')[0]
+    return f"data/0-consensus_reference/{base_name}.fa"
+
 def get_barcode(wildcards):
     """Get barcode motif for a sample"""
     return config["barcodes"][wildcards.sample]
@@ -225,7 +231,7 @@ rule umi_group:
 rule consensus_call:
     input:
         grouped_bam = "data/6-umi_groups/{sample}.grouped.bam",
-        ref = get_reference
+        ref = get_consensus_reference
     output:
         consensus_dir = directory("data/7-consensus_calls/{sample}/consensus")
     threads: 8
@@ -235,9 +241,10 @@ rule consensus_call:
     shell:
         """
         belt consensus \
-        --grouped_bam {input.grouped_bam} \
+        --grouped-bam {input.grouped_bam} \
         --reference {input.ref} \
-        --output_dir data/7-consensus_calls/{wildcards.sample} \
+        --output-dir data/7-consensus_calls/{wildcards.sample} \
+        --sample {wildcards.sample} \
         --threads {threads} \
         >> {log} 2>&1
         """

@@ -33,7 +33,7 @@ def extract_UMIs(reference, alignedReads, minReadLength, barcodeMotif, outputDir
     logger.log_message(f"UMI extraction of {sampleName} with barcode {barcodeMotif} motif started.")
     raw_umi5_list, raw_umi3_list, motif5_index, motif3_index, raw_UMI_dict = findUMI(reference, alignedReads,
                                                                                      barcodeMotif, minReadLength)
-
+                                                                       
     logger.log_message(
         f"Motif5 found at index {motif5_index}, Motif3 found at index {motif3_index} in reference sequence.")
     if raw_umi5_list is None or raw_umi3_list is None:

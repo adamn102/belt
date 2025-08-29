@@ -124,7 +124,7 @@ def extract_reads_to_fastq(
 
 
 import os, subprocess, pysam, pandas as pd
-t-
+
 def long_read_umi_grouping_fast(
         reference, alignedReads, correctedUMIs, outputDir,
         grouping="5pUMI", threshold=5, threads=8

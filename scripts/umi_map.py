@@ -1,6 +1,6 @@
-from belt.scripts.utils import log
-from belt.scripts.extract import *
-from belt.scripts.utils import umi_clustering, correct_UMI_dict
+from utils import log
+from extract import *
+from utils import umi_clustering, correct_UMI_dict
 from pybktree import BKTree
 from umi_tools import UMIClusterer
 from collections import Counter
