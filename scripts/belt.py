@@ -66,7 +66,7 @@ def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir,
     umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir, analysis_out)
 
 
-@main.command()
+@main.command(name='umi-group')
 @click.option('--reference', required=True, help="Reference genome fasta file")
 @click.option('--alignment', required=True, help="Input BAM file")
 @click.option('--corrected_umis', required=True, help="Path to the corrected UMIs file")
