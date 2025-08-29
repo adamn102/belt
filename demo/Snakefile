@@ -1,0 +1,304 @@
+# BELT Demo Pipeline Snakefile
+# This pipeline demonstrates the complete BELT workflow using real test data
+
+import os
+import glob
+
+# Load configuration
+configfile: "config.yaml"
+
+#########################################################
+# Rule: all
+# This rule collects all final outputs for the demo
+#########################################################
+
+def list_all_consensus():
+    return [f"data/8-compiled_consensus/{sample}-compiled-consensus.fa" for sample in config["samples"]]
+
+def list_all_umi_groups():
+    return [f"data/6-umi_groups/{sample}.grouped.bam" for sample in config["samples"]]
+
+rule all:
+    input:
+        # Quality filtering
+        expand("data/2-fastq_filtered/{sample}.fastq", sample=config["samples"]),
+        # Mapping
+        expand("data/4-sorted_reads/{sample}.bam.bai", sample=config["samples"]),
+        # UMI extraction
+        expand("data/5-umi_maps/{sample}_Paired_UMIs_read_names.csv", sample=config["samples"]),
+        # UMI grouping
+        list_all_umi_groups(),
+        # Consensus calling
+        list_all_consensus(),
+        # Demo summary
+        "demo_summary.txt"
+    message: "BELT Demo Pipeline Complete! Check demo_summary.txt for results."
+
+#########################################################
+# Helper functions
+#########################################################
+
+def get_reference(wildcards):
+    """Get reference file for a sample"""
+    return f"data/0-reference_sequence/{wildcards.sample}.fa"
+
+def get_barcode(wildcards):
+    """Get barcode motif for a sample"""
+    return config["barcodes"][wildcards.sample]
+
+def get_min_length(wildcards):
+    """Get minimum read length for a sample"""
+    return config["min_lengths"][wildcards.sample]
+
+def get_whitelist(wildcards):
+    """Get whitelist setting for a sample"""
+    whitelist = config["whitelist"][wildcards.sample]
+    if whitelist == "false":
+        return "false"
+    elif whitelist == "cluster":
+        return "cluster"
+    else:
+        return f"data/0-library_whitelist/{whitelist}.csv"
+
+#########################################################
+# Rule: filter_sequences
+# Quality filter raw FASTQ files
+#########################################################
+
+rule filter_sequences:
+    input:
+        R = "data/1-fastq_files/{sample}.fastq"
+    params:
+        l = get_min_length,
+        q = "25",
+        u = "50"
+    log:
+        h = "logs/fastq/{sample}.html",
+        j = "logs/fastq/{sample}.json"
+    output:
+        R = "data/2-fastq_filtered/{sample}.fastq"
+    message: "Quality filtering {wildcards.sample}"
+    shell:
+        """
+        fastplong --in {input.R} --out {output.R} \
+        --length_required {params.l} \
+        --qualified_quality_phred {params.q} \
+        --unqualified_percent_limit {params.u} \
+        --disable_adapter_trimming \
+        --html {log.h} --json {log.j}
+        """
+
+#########################################################
+# Rule: map_reads
+# Map reads to reference using minimap2
+#########################################################
+
+rule map_reads:
+    input:
+        ref = get_reference,
+        R = "data/2-fastq_filtered/{sample}.fastq"
+    log:
+        L = "logs/minimap2/{sample}.log"
+    params:
+        threads = 4
+    output:
+        O = "data/3-mapped_reads/{sample}.bam"
+    message: "Mapping reads for {wildcards.sample}"
+    shell:
+        """
+        minimap2 -t {params.threads} -a {input.ref} {input.R} > {output.O} 2> {log.L}
+        """
+
+#########################################################
+# Rule: samtools_sort
+# Sort BAM files
+#########################################################
+
+rule samtools_sort:
+    input:
+        "data/3-mapped_reads/{sample}.bam"
+    output:
+        "data/4-sorted_reads/{sample}.bam"
+    message: "Sorting BAM for {wildcards.sample}"
+    shell:
+        "samtools sort {input} -o {output}"
+
+#########################################################
+# Rule: samtools_index
+# Index sorted BAM files
+#########################################################
+
+rule samtools_index:
+    input:
+        "data/4-sorted_reads/{sample}.bam"
+    output:
+        "data/4-sorted_reads/{sample}.bam.bai"
+    message: "Indexing BAM for {wildcards.sample}"
+    shell:
+        "samtools index {input}"
+
+#########################################################
+# Rule: umi_extract
+# Extract UMIs from mapped reads using BELT
+#########################################################
+
+rule umi_extract:
+    input:
+        reference = get_reference,
+        alignment = "data/4-sorted_reads/{sample}.bam"
+    params:
+        min_read_length = get_min_length,
+        motif = get_barcode
+    output:
+        outfile = "data/5-umi_maps/{sample}_rawUMIs_read_names.csv"
+    message: "Extracting UMIs for {wildcards.sample}"
+    shell:
+        """
+        belt extract \
+        --reference {input.reference} \
+        --alignment {input.alignment} \
+        --output {output.outfile} \
+        --min_read_length {params.min_read_length} \
+        --motif {params.motif}
+        """
+
+#########################################################
+# Rule: umi_map
+# Map UMIs to whitelist and correct errors
+#########################################################
+
+rule umi_map:
+    input:
+        reference = get_reference,
+        alignment = "data/4-sorted_reads/{sample}.bam",
+        bai = "data/4-sorted_reads/{sample}.bam.bai"
+    params:
+        min_read_length = get_min_length,
+        whitelist = get_whitelist,
+        motif = get_barcode
+    output:
+        outfile = "data/5-umi_maps/{sample}_Paired_UMIs_read_names.csv"
+    message: "Mapping UMIs for {wildcards.sample}"
+    shell:
+        """
+        belt umi-map \
+        --reference {input.reference} \
+        --alignment {input.alignment} \
+        --min_read_length {params.min_read_length} \
+        --motif {params.motif} \
+        --whitelist {params.whitelist} \
+        --output_dir data/5-umi_maps
+        """
+
+#########################################################
+# Rule: umi_group
+# Group reads by corrected UMIs
+#########################################################
+
+rule umi_group:
+    input:
+        reference = get_reference,
+        alignment = "data/4-sorted_reads/{sample}.bam",
+        correctedUMIs = "data/5-umi_maps/{sample}_Paired_UMIs_read_names.csv"
+    params:
+        grouping = "5pUMI",
+        threshold = 5
+    output:
+        outfile = "data/6-umi_groups/{sample}.grouped.bam"
+    message: "Grouping UMIs for {wildcards.sample}"
+    shell:
+        """
+        belt umi-group \
+        --reference {input.reference} \
+        --alignment {input.alignment} \
+        --corrected_umis {input.correctedUMIs} \
+        --grouping {params.grouping} \
+        --threshold {params.threshold} \
+        --output_dir data/6-umi_groups
+        """
+
+#########################################################
+# Rule: consensus_call
+# Generate consensus sequences from UMI groups
+#########################################################
+
+rule consensus_call:
+    input:
+        grouped_bam = "data/6-umi_groups/{sample}.grouped.bam",
+        ref = get_reference
+    output:
+        consensus_dir = directory("data/7-consensus_calls/{sample}/consensus")
+    threads: 8
+    log:
+        "logs/consensus/{sample}.log"
+    message: "Calling consensus for {wildcards.sample}"
+    shell:
+        """
+        belt consensus \
+        --grouped_bam {input.grouped_bam} \
+        --reference {input.ref} \
+        --output_dir data/7-consensus_calls/{wildcards.sample} \
+        --threads {threads} \
+        >> {log} 2>&1
+        """
+
+#########################################################
+# Rule: compile_consensus
+# Compile all consensus sequences for a sample
+#########################################################
+
+def list_sample_consensus_fastas(wildcards):
+    """Return list of consensus fasta files for this sample."""
+    return sorted(
+        glob.glob(f"data/7-consensus_calls/{wildcards.sample}/consensus/*_consensus.fasta")
+    )
+
+rule compile_consensus:
+    input:
+        files = list_sample_consensus_fastas,
+        consensus_dir = "data/7-consensus_calls/{sample}/consensus"
+    output:
+        "data/8-compiled_consensus/{sample}-compiled-consensus.fa"
+    message: "Compiling consensus for {wildcards.sample}"
+    shell:
+        """
+        cat {input.files} > {output}
+        """
+
+#########################################################
+# Rule: demo_summary
+# Generate a summary of the demo results
+#########################################################
+
+rule demo_summary:
+    input:
+        fastq_filtered = expand("data/2-fastq_filtered/{sample}.fastq", sample=config["samples"]),
+        umi_maps = expand("data/5-umi_maps/{sample}_Paired_UMIs_read_names.csv", sample=config["samples"]),
+        umi_groups = list_all_umi_groups(),
+        consensus = list_all_consensus()
+    output:
+        "demo_summary.txt"
+    message: "Generating demo summary"
+    shell:
+        """
+        echo "BELT Demo Pipeline Results" > {output}
+        echo "=========================" >> {output}
+        echo "" >> {output}
+        echo "Samples processed: {len(config['samples'])}" >> {output}
+        echo "Samples: {', '.join(config['samples'])}" >> {output}
+        echo "" >> {output}
+        echo "Pipeline Steps Completed:" >> {output}
+        echo "1. Quality filtering: {len(input.fastq_filtered)} files" >> {output}
+        echo "2. Read mapping: {len(input.fastq_filtered)} files" >> {output}
+        echo "3. UMI extraction: {len(input.umi_maps)} files" >> {output}
+        echo "4. UMI grouping: {len(input.umi_groups)} files" >> {output}
+        echo "5. Consensus calling: {len(input.consensus)} files" >> {output}
+        echo "" >> {output}
+        echo "Output Files:" >> {output}
+        for file in {input.consensus}; do
+            echo "  - $file" >> {output}
+        done
+        echo "" >> {output}
+        echo "Demo completed successfully!" >> {output}
+        echo "Check the data/ directories for detailed results." >> {output}
+        """

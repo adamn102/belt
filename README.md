@@ -48,6 +48,20 @@ BELT is a toolkit designed for processing and analyzing long-read sequencing dat
 
 That's it! You're ready to use BELT.
 
+### 🧪 Try the Demo Pipeline
+
+Want to see BELT in action? Run the complete demo pipeline:
+
+```bash
+# Navigate to the demo directory
+cd demo
+
+# Set up and run the demo
+./run_demo.sh
+```
+
+The demo processes real test data through the entire BELT workflow and serves as a template for your own pipelines. See the [demo documentation](demo/README.md) for details.
+
 ## Usage
 
 ### Getting Help
