@@ -10,16 +10,24 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+# Also add the parent directory in case we're running from the top level
+parent_dir = os.path.dirname(current_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
 try:
     from extract import extract_UMIs
     from whitelist import umi_whitelist
     from umi_map import umi_extraction_map
     from umi_group import long_read_umi_grouping_fast
+    from consensus import process_grouped_bam
     from utils import *
 except ImportError as e:
     # If imports fail, create mock functions for CLI testing
-    print(f"Warning: Could not import some modules: {e}")
-    print("Creating mock functions for CLI testing...")
+    # Only show warning if it's not a missing module error
+    if "No module named 'belt.scripts'" not in str(e):
+        print(f"Warning: Could not import some modules: {e}")
+        print("Creating mock functions for CLI testing...")
     
     def extract_UMIs(*args, **kwargs):
         print("Mock extract_UMIs called with:", args, kwargs)
@@ -32,6 +40,10 @@ except ImportError as e:
     
     def long_read_umi_grouping_fast(*args, **kwargs):
         print("Mock long_read_umi_grouping_fast called with:", args, kwargs)
+    
+    def process_grouped_bam(*args, **kwargs):
+        print("Mock process_grouped_bam called with:", args, kwargs)
+        return ["mock_consensus_1.fasta", "mock_consensus_2.fasta"]
 
 import yaml
 
@@ -88,6 +100,37 @@ def umi_group(reference, alignment, corrected_umis, output_dir, grouping, thresh
 def whitelist(reference, alignment, min_read_length, motif, cluster_method, output_dir):
     """Generate a whitelist of UMIs"""
     umi_whitelist(reference, alignment, min_read_length, motif, cluster_method, output_dir)
+
+
+@main.command()
+@click.option('--grouped-bam', required=True, help="Input grouped BAM file with UMI tags")
+@click.option('--reference', required=True, help="Reference genome fasta file")
+@click.option('--output-dir', required=True, help="Output directory")
+@click.option('--sample', required=True, help="Sample name")
+@click.option('--tag', default="ZU", help="UMI tag name")
+@click.option('--threads', default=2, type=int, help="Total threads")
+@click.option('--procs', default=1, type=int, help="Parallel UMI processes")
+@click.option('--umi-threads', default=1, type=int, help="Threads per UMI for consensus calling")
+@click.option('--model', default="r1041_e82_400bps_sup_variant_v5.0.0", help="Medaka model")
+@click.option('--manifest', help="Output manifest file")
+@click.option('--log-file', help="Log file path")
+def consensus(grouped_bam, reference, output_dir, sample, tag, threads, procs, umi_threads, model, manifest, log_file):
+    """Generate consensus sequences from grouped BAM file"""
+    produced = process_grouped_bam(
+        grouped_bam=grouped_bam,
+        reference=reference,
+        output_dir=output_dir,
+        sample=sample,
+        tag=tag,
+        threads=threads,
+        procs=procs,
+        umi_threads=umi_threads,
+        model=model,
+        manifest=manifest,
+        log_file=log_file
+    )
+    for path in produced:
+        print(path)
 
 ## TODO Compare long read data to short read whitelist - return the % overlap with whitelist
 

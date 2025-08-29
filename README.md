@@ -8,6 +8,7 @@ BELT is a toolkit designed for processing and analyzing long-read sequencing dat
 - **umi-map**: Map UMIs to a whitelist and generate paired UMI output
 - **umi-group**: Group long-read UMIs based on corrected UMI data
 - **whitelist**: Generate a whitelist of UMIs from sequencing data
+- **consensus**: Generate consensus sequences from grouped BAM file
 - **run-pipeline**: Run the entire pipeline using a configuration file
 
 ## Quick Start
@@ -56,6 +57,7 @@ That's it! You're ready to use BELT.
 ./belt.py umi-map --help
 ./belt.py umi-group --help
 ./belt.py whitelist --help
+./belt.py consensus --help
 ./belt.py run-pipeline --help
 ```
 
@@ -109,6 +111,22 @@ Generate a whitelist of UMIs:
   --motif NNNNNNNNNNNN \
   --output_dir output_directory \
   --min_read_length 250
+```
+
+#### Consensus Command
+Generate consensus sequences from grouped BAM file:
+
+```bash
+./belt.py consensus \
+  --grouped-bam grouped.bam \
+  --reference reference.fasta \
+  --output-dir output_directory \
+  --sample sample_name \
+  --tag ZU \
+  --threads 2 \
+  --procs 1 \
+  --umi-threads 1 \
+  --model r1041_e82_400bps_sup_variant_v5.0.0
 ```
 
 #### Run Pipeline Command
@@ -203,6 +221,7 @@ belt/
 │   ├── umi_map.py      # UMI mapping
 │   ├── umi_group.py    # UMI grouping
 │   ├── whitelist.py    # Whitelist generation
+│   ├── consensus.py    # Consensus calling
 │   └── utils.py        # Utility functions
 ├── test-data/          # Test data files
 ├── tests/              # Test files

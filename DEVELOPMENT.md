@@ -87,7 +87,13 @@ Once set up, you can use the following commands:
 ./belt.py whitelist --reference <ref.fasta> --alignment <input.bam> --motif <motif> --output_dir <output_dir>
 ```
 
-#### 5. Run Pipeline Command
+#### 5. Consensus Command
+```bash
+./belt.py consensus --help
+./belt.py consensus --grouped-bam <grouped.bam> --reference <ref.fasta> --output-dir <output_dir> --sample <sample_name>
+```
+
+#### 6. Run Pipeline Command
 ```bash
 ./belt.py run-pipeline --help
 ./belt.py run-pipeline --config <config.yaml>
@@ -134,6 +140,7 @@ belt/
 │   ├── umi_map.py      # UMI mapping
 │   ├── umi_group.py    # UMI grouping
 │   ├── whitelist.py    # Whitelist generation
+│   ├── consensus.py    # Consensus calling
 │   └── utils.py        # Utility functions
 ├── test-data/          # Test data files
 ├── tests/              # Test files
