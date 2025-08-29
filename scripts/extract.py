@@ -1,4 +1,20 @@
-from belt.scripts.utils import log
+import sys
+import os
+
+# Add the current directory to the path so we can import local modules
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+try:
+    from utils import log
+except ImportError:
+    # Create a simple mock log function if utils is not available
+    class MockLog:
+        def log_message(self, message):
+            print(f"[LOG] {message}")
+    
+    log = MockLog
 import pysam
 from Bio import SeqIO
 import os
