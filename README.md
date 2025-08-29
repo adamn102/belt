@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="images/belt-logo-1.png" alt="BELT Logo" width="400">
+</div>
+
 # BELT - BalazsLab Error-correction Longread Tools
 
 BELT is a toolkit designed for processing and analyzing long-read sequencing data. It provides functionality for extracting reads based on motifs and UMIs (Unique Molecular Identifiers), grouping reads by UMIs, and analyzing UMI distributions. BELT also allows for the integration of short-read sequencing data to error-correct UMIs from the long-read sequencing data.

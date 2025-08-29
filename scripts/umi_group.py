@@ -1,8 +1,23 @@
 import pysam
 import pandas as pd
-from belt.scripts.utils import log
-from collections import Counter
+import sys
 import os
+from collections import Counter
+
+# Add the current directory to the path so we can import local modules
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
+
+try:
+    from utils import log
+except ImportError:
+    # Create a simple mock log function if utils is not available
+    class MockLog:
+        def log_message(self, message):
+            print(f"[LOG] {message}")
+    
+    log = MockLog
 
 
 def long_read_umi_grouping(reference, alignedReads, correctedUMIs, outputDir, grouping="5pUMI", threshold=5):
@@ -109,8 +124,7 @@ def extract_reads_to_fastq(
 
 
 import os, subprocess, pysam, pandas as pd
-from belt.scripts.utils import log
-
+t-
 def long_read_umi_grouping_fast(
         reference, alignedReads, correctedUMIs, outputDir,
         grouping="5pUMI", threshold=5, threads=8
