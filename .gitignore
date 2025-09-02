@@ -6,6 +6,7 @@ ENV/
 
 # Python
 __pycache__/
+__pycache__
 *.py[cod]
 *$py.class
 *.so
@@ -103,3 +104,7 @@ Thumbs.db
 test_output.bam
 *.log
 *.tmp
+scripts/__pycache__/whitelist.cpython-312.pyc
+scripts/__pycache__/utils.cpython-312.pyc
+scripts/__pycache__/extract.cpython-312.pyc
+/scripts/__pycache__
