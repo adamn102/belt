@@ -12,6 +12,8 @@ if [ ! -f "Snakefile" ]; then
     echo "❌ Error: Please run this script from the demo directory"
     echo "   cd demo && ./run_demo.sh"
     exit 1
+else
+    echo "✅ Running demo from demo directory"
 fi
 
 # Check if conda/mamba is available
@@ -33,7 +35,7 @@ else
 fi
 
 # Check if conda environment exists
-ENV_NAME="barcoded_hiv_long"
+ENV_NAME="belt_demo"
 if ! $CONDA_CMD env list | grep -q "^$ENV_NAME "; then
     echo "📋 Creating conda environment..."
     $CONDA_CMD env create -f environment.yml

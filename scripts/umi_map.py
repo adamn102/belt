@@ -60,6 +60,8 @@ def umi_extraction_map(
             f"UMI correction on the dictionaries of {sampleName} with barcode {barcodeMotif} motif finished.")
 
     else:
+        # TODO: Add more whitelist strict mode where non-matching UMIs are not allowed 
+        # TODO: Add output data of matching and non-matching UMIs (e.g. rates or counts)
         logger.log_message("Mapping raw UMIs to whitelist...")
         wl_5, wl_3 = load_whitelist(whitelist)
 

@@ -1,5 +1,6 @@
-name: barcoded_hiv_long
+name: belt_demo
 channels:
+  - nanoporetech
   - conda-forge
   - bioconda
 dependencies:
@@ -11,14 +12,14 @@ dependencies:
   - fastplong
   - samtools
   - pandas
-  - coincbc
+  - medaka=2.1.0=py310h8a0c2ca_0
   - pip
   - pip:
+    - medaka
     - pyasyncore
     - pyasynchat
     - pysam
     - openpyxl
-    - pandas
     - numpy
     - plotly
     - umi_tools
