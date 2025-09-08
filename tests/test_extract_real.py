@@ -15,6 +15,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
 from extract import extract_UMIs, findUMI
 
+# Global variable to control UMI output display
+SHOW_UMI_SAMPLES = True
+
 
 class TestExtractReal(unittest.TestCase):
     """Test extract functionality with real test data"""
@@ -144,6 +147,49 @@ class TestExtractReal(unittest.TestCase):
         
         # Check that we have some data
         self.assertGreater(len(df), 0, "Output CSV should contain data")
+        
+        # Show sample of extracted UMIs if enabled
+        if SHOW_UMI_SAMPLES:
+            # Find all UMI columns (exclude 'Read Name')
+            umi_columns = [col for col in df.columns if col != 'Read Name']
+            num_umis = len(umi_columns)
+            
+            print(f"\nExtracted {len(df)} reads with {num_umis} UMIs:")
+            
+            # Calculate column widths dynamically
+            read_name_width = 30
+            umi_width = 15
+            total_width = read_name_width + (num_umis * umi_width) + (num_umis - 1) * 2  # +2 for spaces between columns
+            
+            print("=" * total_width)
+            
+            # Create header row
+            header_parts = [f"{'Read Name':<{read_name_width}}"]
+            for i, col in enumerate(umi_columns, 1):
+                header_parts.append(f"UMI{i}")
+            print(" ".join(header_parts))
+            
+            print("-" * total_width)
+            
+            # Show first 10 rows
+            for i, (_, row) in enumerate(df.head(10).iterrows()):
+                read_name = row['Read Name'][:read_name_width-3] + "..." if len(row['Read Name']) > read_name_width else row['Read Name']
+                
+                # Format row data
+                row_parts = [f"{read_name:<{read_name_width}}"]
+                for col in umi_columns:
+                    umi_value = row[col] if pd.notna(row[col]) and row[col] != "" else "None"
+                    row_parts.append(f"{umi_value:<{umi_width}}")
+                
+                print(" ".join(row_parts))
+            
+            if len(df) > 10:
+                print(f"... and {len(df) - 10} more reads")
+                
+            # Show UMI column mapping
+            print(f"\nUMI Column Mapping:")
+            for i, col in enumerate(umi_columns, 1):
+                print(f"  UMI{i} -> {col}")
         
         # Validate UMI sequences
         for _, row in df.iterrows():
@@ -291,5 +337,177 @@ class TestExtractReal(unittest.TestCase):
         self.assertEqual(len(empty_rows), 0, "Should not have completely empty rows")
 
 
+def simple_umi_preview(save_csv_dir=None):
+    """Simple function to just show UMI extraction preview without test framework"""
+    import tempfile
+    import shutil
+    
+    # Set up paths
+    test_data_dir = Path(__file__).parent.parent / "scripts" / "test-data" / "test-umi_map"
+    reference_file = test_data_dir / "reference_sequence" / "LP249-Gldx-CircAmp.fasta"
+    bam_file = test_data_dir / "sorted_reads" / "LP249-Gldx-CircAmp-sorted.bam"
+    
+    # Create temporary directory
+    temp_dir = tempfile.mkdtemp()
+    
+    try:
+        # Run extraction
+        extract_UMIs(
+            str(reference_file),
+            str(bam_file),
+            1000,  # min_read_length
+            "NNNNNNNNNNNN",  # barcode_motif
+            temp_dir
+        )
+        
+        # Read and display results
+        output_file = Path(temp_dir) / "LP249-Gldx-CircAmp-sorted_rawUMIs_read_names.csv"
+        if output_file.exists():
+            df = pd.read_csv(output_file)
+            
+            # Find all UMI columns (exclude 'Read Name')
+            umi_columns = [col for col in df.columns if col != 'Read Name']
+            num_umis = len(umi_columns)
+            
+            print(f"Extracted {len(df)} reads with {num_umis} UMIs:")
+            
+            # Calculate column widths dynamically
+            read_name_width = 30
+            umi_width = 15
+            total_width = read_name_width + (num_umis * umi_width) + (num_umis - 1) * 2  # +2 for spaces between columns
+            
+            print("=" * total_width)
+            
+            # Create header row
+            header_parts = [f"{'Read Name':<{read_name_width}}"]
+            for i, col in enumerate(umi_columns, 1):
+                header_parts.append(f"UMI{i}")
+            print(" ".join(header_parts))
+            
+            print("-" * total_width)
+            
+            # Show first 10 rows
+            for i, (_, row) in enumerate(df.head(10).iterrows()):
+                read_name = row['Read Name'][:read_name_width-3] + "..." if len(row['Read Name']) > read_name_width else row['Read Name']
+                
+                # Format row data
+                row_parts = [f"{read_name:<{read_name_width}}"]
+                for col in umi_columns:
+                    umi_value = row[col] if pd.notna(row[col]) and row[col] != "" else "None"
+                    row_parts.append(f"{umi_value:<{umi_width}}")
+                
+                print(" ".join(row_parts))
+            
+            if len(df) > 10:
+                print(f"... and {len(df) - 10} more reads")
+                
+            # Show UMI column mapping
+            print(f"\nUMI Column Mapping:")
+            for i, col in enumerate(umi_columns, 1):
+                print(f"  UMI{i} -> {col}")
+            
+            # Save CSV if requested
+            if save_csv_dir:
+                save_dir = Path(save_csv_dir)
+                save_dir.mkdir(parents=True, exist_ok=True)
+                saved_file = save_dir / output_file.name
+                shutil.copy2(output_file, saved_file)
+                print(f"\nCSV file saved to: {saved_file}")
+                
+        else:
+            print("No output file created")
+            
+    finally:
+        # Clean up
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def main():
+    """Main function to run the extract tests with detailed output"""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Run BELT extract function tests with real data')
+    parser.add_argument('--verbose', '-v', action='store_true', 
+                       help='Verbose output showing individual test results')
+    parser.add_argument('--failfast', '-f', action='store_true',
+                       help='Stop on first failure')
+    parser.add_argument('--buffer', '-b', action='store_true',
+                       help='Buffer stdout and stderr during test runs')
+    parser.add_argument('--pattern', '-p', type=str,
+                       help='Pattern to match test method names')
+    parser.add_argument('--quiet', '-q', action='store_true',
+                       help='Suppress UMI sample output')
+    parser.add_argument('--simple', '-s', action='store_true',
+                       help='Simple mode: only show UMI preview, no test output')
+    parser.add_argument('--save-csv', type=str, metavar='DIR',
+                       help='Save the CSV file to the specified directory')
+    
+    args = parser.parse_args()
+    
+    # Handle simple mode
+    if args.simple:
+        simple_umi_preview(save_csv_dir=args.save_csv)
+        return 0
+    
+    # Set global variable for UMI sample display
+    global SHOW_UMI_SAMPLES
+    SHOW_UMI_SAMPLES = not args.quiet
+    
+    # Create test suite
+    loader = unittest.TestLoader()
+    suite = loader.loadTestsFromTestCase(TestExtractReal)
+    
+    # Filter tests by pattern if provided
+    if args.pattern:
+        suite = unittest.TestSuite()
+        for test in loader.loadTestsFromTestCase(TestExtractReal):
+            if args.pattern.lower() in test._testMethodName.lower():
+                suite.addTest(test)
+    
+    # Create test runner with options
+    verbosity = 2 if args.verbose else 1
+    runner = unittest.TextTestRunner(
+        verbosity=verbosity,
+        failfast=args.failfast,
+        buffer=args.buffer,
+        stream=open(os.devnull, 'w') if not args.verbose else None
+    )
+    
+    print("=" * 70)
+    print("BELT Extract Function Tests with Real Data")
+    print("=" * 70)
+    print(f"Running {suite.countTestCases()} test(s)...")
+    print()
+    
+    # Run tests
+    result = runner.run(suite)
+    
+    # Print summary
+    print("\n" + "=" * 70)
+    print("TEST SUMMARY")
+    print("=" * 70)
+    print(f"Tests run: {result.testsRun}")
+    print(f"Failures: {len(result.failures)}")
+    print(f"Errors: {len(result.errors)}")
+    print(f"Skipped: {len(result.skipped) if hasattr(result, 'skipped') else 0}")
+    
+    if result.failures:
+        print("\nFAILURES:")
+        for test, traceback in result.failures:
+            error_msg = traceback.split('AssertionError: ')[-1].split('\n')[0]
+            print(f"  - {test}: {error_msg}")
+    
+    if result.errors:
+        print("\nERRORS:")
+        for test, traceback in result.errors:
+            error_msg = traceback.split('\n')[-2]
+            print(f"  - {test}: {error_msg}")
+    
+    # Exit with appropriate code
+    exit_code = 0 if result.wasSuccessful() else 1
+    print(f"\nExit code: {exit_code}")
+    return exit_code
+
+
 if __name__ == '__main__':
-    unittest.main()
+    exit(main())
