@@ -59,9 +59,9 @@ def main():
 @click.option('--alignment', required=True, help="Input BAM file")
 @click.option('--output', required=True, help="Output BAM file")
 @click.option('--min_read_length', default=3900, type=int, help="Minimum expected read length")
-@click.option('--motif', required=False, default="NNNNNNNNNNNN", help="Barcode motif sequence")
+@click.option('--motif', required=False, default=["NNNNNNNNNNNN"], help="Barcode motif sequence")
 def extract(reference, alignment, min_read_length, motif, output):
-    """Extract reads based on motifs and UMIs"""
+    """Extract reads based on motifs and UMIs from aligned BAM files"""
     extract_UMIs(reference, alignment, min_read_length, motif, output)
 
 
@@ -74,7 +74,7 @@ def extract(reference, alignment, min_read_length, motif, output):
 @click.option('--output_dir', required=True, help="Output directory")
 @click.option('--analysis_out', required=False, default="analysis", help="Analysis output directory")
 def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir, analysis_out):
-    """Map UMIs to a whitelist and generate paired UMI output"""
+    """Map UMIs to a whitelist and generate paired UMI output from BAM files"""
     umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir, analysis_out)
 
 
@@ -85,8 +85,10 @@ def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir,
 @click.option('--output_dir', required=True, help="Output directory")
 @click.option('--grouping', required=True, type=click.Choice(['5pUMI', '3pUMI']), help="Grouping method (5pUMI or 3pUMI)")
 @click.option('--threshold', default=10, type=int, help="Threshold for grouping")
+
+
 def umi_group(reference, alignment, corrected_umis, output_dir, grouping, threshold):
-    """Group long-read UMIs based on corrected UMI data"""
+    """Group long-read UMIs based on corrected UMI data from BAM files"""
     long_read_umi_grouping_fast(reference, alignment, corrected_umis, output_dir, grouping, threshold)
 
 

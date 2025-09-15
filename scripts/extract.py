@@ -79,26 +79,23 @@ def findUMI(reference, alignedReads, barcodeMotifs, minReadLength):
     motif_indices = []
     motif_lengths = []
     
-    # Find all motif positions (going in one direction only)
-    for motif in barcodeMotifs:
+    # Find motif positions sequentially (each motif gets the next available position)
+    start_search = 0
+    for i, motif in enumerate(barcodeMotifs):
         motif_length = len(motif)
         motif_lengths.append(motif_length)
         
-        # Find all occurrences of this motif
-        motif_positions = []
-        start = 0
-        while True:
-            pos = ref_seq.find(motif, start)
-            if pos == -1:
-                break
-            motif_positions.append(pos)
-            start = pos + 1
-        
-        if not motif_positions:
-            print(f"Motif '{motif}' not found in reference sequence.")
+        # Find the next occurrence of this motif starting from start_search
+        pos = ref_seq.find(motif, start_search)
+        if pos == -1:
+            print(f"Motif '{motif}' not found in reference sequence starting from position {start_search}.")
             return None, None
         
-        motif_indices.append(motif_positions)
+        # Add this position to the motif indices
+        motif_indices.append([pos])
+        
+        # Update start_search to begin after this motif for the next search
+        start_search = pos + 1
     
     # Get the range to fetch reads (from first motif to last motif)
     all_positions = []
