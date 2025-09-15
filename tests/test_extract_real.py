@@ -356,7 +356,7 @@ def simple_umi_preview(save_csv_dir=None):
             str(reference_file),
             str(bam_file),
             1000,  # min_read_length
-            "NNNNNNNNNNNN",  # barcode_motif
+            ["NNNNNNNNNNNN","NNNNNNNNNNNN","NNNNNNNNNNNN","NNNNNNNNNNNNNNNNNNNNNNNN"],  # barcode_motifs (now a list)
             temp_dir
         )
         
