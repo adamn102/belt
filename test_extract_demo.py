@@ -10,7 +10,7 @@ from pathlib import Path
 # Add the scripts directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'scripts'))
 
-from extract import extract_UMIs, findUMI
+from extract import extract_umis, findUMI
 
 def main():
     """Demo the extract functionality with real test data"""
@@ -72,9 +72,9 @@ def main():
         return
     
     # Test 3: Run extract_UMIs function
-    print("📝 Testing extract_UMIs function...")
+    print("📝 Testing extract_umis function...")
     try:
-        extract_UMIs(reference_file, bam_file, min_read_length, barcode_motif, output_dir)
+        extract_umis(reference_file, bam_file, min_read_length, barcode_motif, output_dir)
         
         # Check output file
         expected_output_file = os.path.join(output_dir, "B145-XTMMF9-12_rawUMIs_read_names.csv")
@@ -95,7 +95,7 @@ def main():
             print(f"❌ Output file not found: {expected_output_file}")
             
     except Exception as e:
-        print(f"❌ extract_UMIs failed: {e}")
+        print(f"❌ extract_umis failed: {e}")
         return
     
     print("\n🎉 Demo completed successfully!")

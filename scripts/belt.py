@@ -16,7 +16,7 @@ if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
 try:
-    from extract import extract_UMIs
+    from extract import extract_umis
     from whitelist import umi_whitelist
     from umi_map import umi_extraction_map
     from umi_group import long_read_umi_grouping_fast
@@ -29,8 +29,8 @@ except ImportError as e:
         print(f"Warning: Could not import some modules: {e}")
         print("Creating mock functions for CLI testing...")
     
-    def extract_UMIs(*args, **kwargs):
-        print("Mock extract_UMIs called with:", args, kwargs)
+    def extract_umis(*args, **kwargs):
+        print("Mock extract_umis called with:", args, kwargs)
     
     def umi_whitelist(*args, **kwargs):
         print("Mock umi_whitelist called with:", args, kwargs)
@@ -62,7 +62,18 @@ def main():
 @click.option('--motif', required=False, default=["NNNNNNNNNNNN"], help="Barcode motif sequence")
 def extract(reference, alignment, min_read_length, motif, output):
     """Extract reads based on motifs and UMIs from aligned BAM files"""
-    extract_UMIs(reference, alignment, min_read_length, motif, output)
+    # Parse motif if it's a string representation of a list
+    if isinstance(motif, str):
+        import ast
+        try:
+            motif = ast.literal_eval(motif)
+        except (ValueError, SyntaxError):
+            # If parsing fails, treat as single motif
+            motif = [motif]
+    elif not isinstance(motif, list):
+        motif = [motif]
+    
+    extract_umis(reference, alignment, min_read_length, motif, output)
 
 
 @main.command()
@@ -144,7 +155,7 @@ def consensus(grouped_bam, reference, output_dir, sample, tag, threads, procs, u
 def run_pipeline(config):
     """Run the entire pipeline using a configuration file"""
     config_data = load_config(config)
-    extract_UMIs(
+    extract_umis(
         config_data['reference'],
         config_data['alignment'],
         config_data['min_read_length'],

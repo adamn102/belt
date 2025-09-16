@@ -11,7 +11,7 @@ from pathlib import Path
 # Add the scripts directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
-from extract import extract_UMIs, findUMI
+from extract import extract_umis, findUMI
 
 # Test configuration constants
 # Modify these values to test different scenarios
@@ -102,8 +102,8 @@ def test_extract_function(reference_file, bam_file, output_dir):
     
     try:
         # Run the extract function
-        print("Running extract_UMIs function...")
-        extract_UMIs(
+        print("Running extract_umis function...")
+        extract_umis(
             str(reference_file),
             str(bam_file),
             min_read_length,
@@ -221,8 +221,8 @@ def test_multiple_motifs(reference_file, bam_file, output_dir):
     
     try:
         # Run the extract function
-        print("Running extract_UMIs function with multiple motifs...")
-        extract_UMIs(
+        print("Running extract_umis function with multiple motifs...")
+        extract_umis(
             str(reference_file),
             str(bam_file),
             min_read_length,

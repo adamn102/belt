@@ -13,7 +13,7 @@ class TestExtract(unittest.TestCase):
         try:
             umi_map.umi_extraction_map(reference, alignment, minReadLength, motif, whitelist, outputDir)
         except Exception as e:
-            self.fail(f"extract_UMIs raised an exception: {e}")
+            self.fail(f"extract_umis raised an exception: {e}")
 
     def test_umi_map_sample2(self):
         # Test extracting UMIs from a short read BAM file
@@ -27,4 +27,4 @@ class TestExtract(unittest.TestCase):
         try:
             umi_map.umi_extraction_map(reference, alignment, minReadLength, motif, whitelist, outputDir)
         except Exception as e:
-            self.fail(f"extract_UMIs raised an exception: {e}")
+            self.fail(f"extract_umis raised an exception: {e}")

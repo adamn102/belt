@@ -21,7 +21,7 @@ import os
 import pandas as pd
 
 
-def extract_UMIs(reference, alignedReads, minReadLength, barcodeMotifs, outputDir):
+def extract_umis(reference, alignedReads, minReadLength, barcodeMotifs, outputDir):
     sampleName: object = alignedReads.split("/")[-1].split(".")[0]
 
     # Check if the output directory exists, if not create it
@@ -49,7 +49,7 @@ def extract_UMIs(reference, alignedReads, minReadLength, barcodeMotifs, outputDi
     df = pd.DataFrame.from_dict(raw_UMI_dict, orient='index', columns=umi_columns)
     df.index.name = 'Read Name'
     df.reset_index(inplace=True)
-    df.to_csv(f"{outputDir}/{sampleName}_rawUMIs_read_names.csv", index=False)
+    df.to_csv(f"{outputDir}/{sampleName}.belt_extract.csv", index=False)
 
 
 def findUMI(reference, alignedReads, barcodeMotifs, minReadLength):
