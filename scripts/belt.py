@@ -21,6 +21,7 @@ try:
     from umi_map import umi_extraction_map
     from umi_group import long_read_umi_grouping_fast
     from consensus import process_grouped_bam
+    from map import map_pipeline
     from utils import *
 except ImportError as e:
     # If imports fail, create mock functions for CLI testing
@@ -44,6 +45,14 @@ except ImportError as e:
     def process_grouped_bam(*args, **kwargs):
         print("Mock process_grouped_bam called with:", args, kwargs)
         return ["mock_consensus_1.fasta", "mock_consensus_2.fasta"]
+    
+    def map_pipeline(*args, **kwargs):
+        print("Mock map_pipeline called with:", args, kwargs)
+        return {
+            'filtered_fastq': 'mock_filtered.fastq',
+            'bam_file': 'mock.bam',
+            'bam_index': 'mock.bam.bai'
+        }
 
 import yaml
 
@@ -52,6 +61,34 @@ import yaml
 def main():
     """BELT - BalazsLab ERRSeq Long-Read Toolkit"""
     pass
+
+
+@main.command()
+@click.option('--reference', required=True, help="Reference genome fasta file")
+@click.option('--fastq', required=True, help="Input FASTQ file")
+@click.option('--output-dir', required=True, help="Output directory")
+@click.option('--min-length', default=1000, type=int, help="Minimum read length for filtering")
+@click.option('--min-quality', default=7, type=int, help="Minimum average quality score for filtering")
+@click.option('--threads', default=4, type=int, help="Number of threads to use")
+def map(reference, fastq, output_dir, min_length, min_quality, threads):
+    """Map FASTQ reads to reference using minimap2 with filtering, sorting, and indexing"""
+    result = map_pipeline(
+        reference=reference,
+        fastq=fastq,
+        output_dir=output_dir,
+        min_length=min_length,
+        min_quality=min_quality,
+        threads=threads
+    )
+    
+    if result:
+        print("✅ Mapping pipeline completed successfully!")
+        print("Output files:")
+        for key, path in result.items():
+            print(f"  {key}: {path}")
+    else:
+        print("❌ Mapping pipeline failed!")
+        sys.exit(1)
 
 
 @main.command()
