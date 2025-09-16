@@ -95,7 +95,7 @@ def findUMI(reference, alignedReads, barcodeMotifs, minReadLength):
         motif_indices.append([pos])
         
         # Update start_search to begin after this motif for the next search
-        start_search = pos + len(motif) + 1
+        start_search = pos + 1
     
     # Get the range to fetch reads (from first motif to last motif)
     all_positions = []

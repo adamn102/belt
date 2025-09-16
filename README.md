@@ -8,7 +8,6 @@ BELT is a toolkit designed for processing and analyzing long-read sequencing dat
 
 ## Features
 
-- **map**: Map FASTQ reads to reference using minimap2 with filtering, sorting, and indexing
 - **extract**: Extract reads based on motifs and UMIs from BAM files
 - **umi-map**: Map UMIs to a whitelist and generate paired UMI output
 - **umi-group**: Group long-read UMIs based on corrected UMI data
@@ -72,7 +71,6 @@ The demo automatically creates a conda environment with all required tools and p
 ./belt.py --help
 
 # Show help for a specific command
-./belt.py map --help
 ./belt.py extract --help
 ./belt.py umi-map --help
 ./belt.py umi-group --help
@@ -83,29 +81,6 @@ The demo automatically creates a conda environment with all required tools and p
 
 ### Command Examples
 
-#### Map Command
-Map FASTQ reads to reference using minimap2 with filtering, sorting, and indexing:
-
-```bash
-./belt.py map \
-  --reference reference.fasta \
-  --fastq input.fastq \
-  --output-dir output_directory \
-  --min-length 1000 \
-  --min-quality 7 \
-  --threads 4
-```
-
-This command will:
-1. Filter the FASTQ file based on read length and quality
-2. Map reads to the reference using minimap2 and sort in one step
-3. Index the final BAM file
-
-Output files:
-- `{sample}_filtered.fastq`: Filtered FASTQ file
-- `{sample}.bam`: Final BAM file
-- `{sample}.bam.bai`: BAM index file
-
 #### Extract Command
 Extract reads based on motifs and UMIs:
 
@@ -115,8 +90,9 @@ Extract reads based on motifs and UMIs:
   --alignment input.bam \
   --output output.bam \
   --min_read_length 3900 \
-  --motif '["NNNNNNNNNNNN","NNNNNNNNNNNN"]'
+  --motif NNNNNNNNNNNN
 ```
+
 #### UMI Map Command
 Map UMIs to a whitelist and generate paired UMI output:
 
@@ -259,7 +235,6 @@ belt/
 ├── setup.py            # Package configuration
 ├── scripts/            # Main BELT scripts
 │   ├── belt.py         # CLI implementation
-│   ├── map.py          # Mapping pipeline (filter, map, sort, index)
 │   ├── extract.py      # Extract functionality
 │   ├── umi_map.py      # UMI mapping
 │   ├── umi_group.py    # UMI grouping
