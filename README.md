@@ -81,6 +81,56 @@ The demo automatically creates a conda environment with all required tools and p
 
 ### Command Examples
 
+#### Map Command
+Map FASTQ reads to reference using minimap2 with filtering, sorting, indexing, and optional demultiplexing:
+
+**Basic mapping (no demultiplexing):**
+```bash
+./belt.py map \
+  --reference reference.fasta \
+  --fastq input.fastq \
+  --output-dir output_directory \
+  --min-length 1000 \
+  --min-quality 7 \
+  --threads 4
+```
+
+**With CSV-based demultiplexing:**
+```bash
+./belt.py map \
+  --reference reference.fasta \
+  --fastq input.fastq \
+  --output-dir output_directory \
+  --demultiplex-csv barcodes.csv \
+  --search-window-5p 100 \
+  --search-window-3p 100 \
+  --mismatch-threshold 2
+```
+
+**CSV Format Example (barcodes.csv):**
+```csv
+barcode_5p,barcode_3p,sample_name
+ATCGATCGATCGATC,TTTTTTTTTTTTTT,sample1
+GCATGCATGCATGC,CCCCCCCCCCCCCC,sample2
+TTTTTTTTTTTTTT,AAAAAAAAAAAAAA,sample3
+```
+
+This command will:
+1. Filter the FASTQ file based on read length and quality
+2. Map reads to the reference using minimap2 (optimized for N-base mapping) and sort in one step
+3. Index the final BAM file
+4. Demultiplex reads based on provided barcodes (if CSV specified)
+
+**Note**: The mapping is optimized for aligning barcode sequences (N bases) to N regions in the reference sequence using parameters like `--score-N=0` to not penalize N bases.
+
+**Output files:**
+- `{sample}_filtered.fastq`: Filtered FASTQ file
+- `{sample}.bam`: Final BAM file
+- `{sample}.bam.bai`: BAM index file
+- `demultiplexed/`: Directory containing demultiplexed BAM files (if demultiplexing enabled)
+  - `{sample_name}.bam`: BAM file for each sample (using names from CSV)
+  - `unassigned.bam`: Reads that couldn't be assigned to any barcode
+
 #### Extract Command
 Extract reads based on motifs and UMIs:
 

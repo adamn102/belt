@@ -161,9 +161,244 @@ def index_bam(bam_file):
         return False
 
 
-def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, threads=4):
+def load_barcodes_from_csv(csv_file):
     """
-    Complete mapping pipeline: filter -> map+sort -> index
+    Load barcodes from CSV file
+    
+    Expected CSV format:
+    barcode_5p,barcode_3p,sample_name
+    ATCGATCGATCGATC,TTTTTTTTTTTTTT,sample1
+    GCATGCATGCATGC,CCCCCCCCCCCCCC,sample2
+    
+    Returns:
+        dict: Dictionary with barcode information
+    """
+    import csv
+    
+    barcodes = {
+        '5p': [],
+        '3p': [],
+        'samples': []
+    }
+    
+    try:
+        with open(csv_file, 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if 'barcode_5p' in row and row['barcode_5p'].strip():
+                    barcodes['5p'].append(row['barcode_5p'].strip())
+                if 'barcode_3p' in row and row['barcode_3p'].strip():
+                    barcodes['3p'].append(row['barcode_3p'].strip())
+                if 'sample_name' in row and row['sample_name'].strip():
+                    barcodes['samples'].append(row['sample_name'].strip())
+        
+        return barcodes
+    except Exception as e:
+        logger = log()
+        logger.log_message(f"Error loading barcodes from CSV: {e}")
+        return None
+
+
+def demultiplex_reads_fuzzy(bam_file, output_dir, barcodes_5p=None, barcodes_3p=None, 
+                           sample_names=None, search_window_5p=100, search_window_3p=100, mismatch_threshold=2):
+    """
+    Demultiplex reads using fuzzy matching within specified windows
+    
+    Args:
+        bam_file (str): Path to input BAM file
+        output_dir (str): Path to output directory
+        barcodes_5p (list): List of 5' barcode sequences
+        barcodes_3p (list): List of 3' barcode sequences
+        search_window_5p (int): Number of bases to search from start for 5' barcodes
+        search_window_3p (int): Number of bases to search from end for 3' barcodes
+        mismatch_threshold (int): Maximum mismatches allowed for barcode matching
+    
+    Returns:
+        dict: Demultiplexing statistics and output files
+    """
+    logger = log()
+    logger.log_message(f"Demultiplexing reads from {bam_file} using fuzzy matching")
+    
+    try:
+        import pysam
+        
+        # Create demultiplexed output directory
+        demux_dir = os.path.join(output_dir, "demultiplexed")
+        os.makedirs(demux_dir, exist_ok=True)
+        
+        # Initialize statistics
+        stats = {
+            'total_reads': 0,
+            'demultiplexed_reads': 0,
+            'unassigned_reads': 0,
+            'barcode_combinations': {},
+            'output_files': {}
+        }
+        
+        # Create output BAM files for each barcode combination
+        bam_files = {}
+        if barcodes_5p and barcodes_3p:
+            # Both 5' and 3' barcodes
+            for i, (b5p, b3p) in enumerate(zip(barcodes_5p, barcodes_3p)):
+                # Use sample name from CSV if available, otherwise use index
+                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                bam_path = os.path.join(demux_dir, f"{sample_name}.bam")
+                bam_files[sample_name] = pysam.AlignmentFile(bam_path, "wb", template=pysam.AlignmentFile(bam_file, "rb"))
+                stats['barcode_combinations'][sample_name] = 0
+                stats['output_files'][sample_name] = bam_path
+        elif barcodes_5p:
+            # Only 5' barcodes
+            for i, b5p in enumerate(barcodes_5p):
+                # Use sample name from CSV if available, otherwise use index
+                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                bam_path = os.path.join(demux_dir, f"{sample_name}.bam")
+                bam_files[sample_name] = pysam.AlignmentFile(bam_path, "wb", template=pysam.AlignmentFile(bam_file, "rb"))
+                stats['barcode_combinations'][sample_name] = 0
+                stats['output_files'][sample_name] = bam_path
+        elif barcodes_3p:
+            # Only 3' barcodes
+            for i, b3p in enumerate(barcodes_3p):
+                # Use sample name from CSV if available, otherwise use index
+                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                bam_path = os.path.join(demux_dir, f"{sample_name}.bam")
+                bam_files[sample_name] = pysam.AlignmentFile(bam_path, "wb", template=pysam.AlignmentFile(bam_file, "rb"))
+                stats['barcode_combinations'][sample_name] = 0
+                stats['output_files'][sample_name] = bam_path
+        
+        # Unassigned reads file
+        unassigned_bam = os.path.join(demux_dir, "unassigned.bam")
+        unassigned_file = pysam.AlignmentFile(unassigned_bam, "wb", template=pysam.AlignmentFile(bam_file, "rb"))
+        stats['output_files']['unassigned'] = unassigned_bam
+        
+        def calculate_mismatches(seq1, seq2):
+            """Calculate number of mismatches between two sequences"""
+            if len(seq1) != len(seq2):
+                return float('inf')
+            return sum(1 for a, b in zip(seq1, seq2) if a != b)
+        
+        def find_best_barcode_match(sequence, barcodes, search_window, is_3p=False):
+            """Find the best matching barcode with minimum mismatches within search window"""
+            best_match = None
+            min_mismatches = float('inf')
+            best_position = -1
+            
+            # Determine search region
+            if is_3p:
+                # Search from the end
+                search_start = max(0, len(sequence) - search_window)
+                search_sequence = sequence[search_start:]
+                search_offset = search_start
+            else:
+                # Search from the beginning
+                search_sequence = sequence[:search_window]
+                search_offset = 0
+            
+            for barcode in barcodes:
+                # Check all possible positions in the search region
+                for i in range(len(search_sequence) - len(barcode) + 1):
+                    subsequence = search_sequence[i:i+len(barcode)]
+                    mismatches = calculate_mismatches(subsequence, barcode)
+                    
+                    if mismatches < min_mismatches and mismatches <= mismatch_threshold:
+                        min_mismatches = mismatches
+                        best_match = barcode
+                        best_position = search_offset + i
+            
+            return best_match if min_mismatches <= mismatch_threshold else None
+        
+        # Process reads
+        with pysam.AlignmentFile(bam_file, "rb") as infile:
+            for read in infile:
+                stats['total_reads'] += 1
+                sequence = read.query_sequence
+                
+                if not sequence:
+                    unassigned_file.write(read)
+                    stats['unassigned_reads'] += 1
+                    continue
+                
+                assigned = False
+                
+                if barcodes_5p and barcodes_3p:
+                    # Both 5' and 3' barcodes
+                    barcode_5p_match = find_best_barcode_match(sequence, barcodes_5p, search_window_5p, is_3p=False)
+                    barcode_3p_match = find_best_barcode_match(sequence, barcodes_3p, search_window_3p, is_3p=True)
+                    
+                    if barcode_5p_match and barcode_3p_match:
+                        # Find the index of the matching combination
+                        for i, (b5p, b3p) in enumerate(zip(barcodes_5p, barcodes_3p)):
+                            if b5p == barcode_5p_match and b3p == barcode_3p_match:
+                                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                                if sample_name in bam_files:
+                                    bam_files[sample_name].write(read)
+                                    stats['barcode_combinations'][sample_name] += 1
+                                    stats['demultiplexed_reads'] += 1
+                                    assigned = True
+                                    break
+                
+                elif barcodes_5p:
+                    # Only 5' barcodes
+                    barcode_match = find_best_barcode_match(sequence, barcodes_5p, search_window_5p, is_3p=False)
+                    if barcode_match:
+                        for i, b5p in enumerate(barcodes_5p):
+                            if b5p == barcode_match:
+                                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                                if sample_name in bam_files:
+                                    bam_files[sample_name].write(read)
+                                    stats['barcode_combinations'][sample_name] += 1
+                                    stats['demultiplexed_reads'] += 1
+                                    assigned = True
+                                    break
+                
+                elif barcodes_3p:
+                    # Only 3' barcodes
+                    barcode_match = find_best_barcode_match(sequence, barcodes_3p, search_window_3p, is_3p=True)
+                    if barcode_match:
+                        for i, b3p in enumerate(barcodes_3p):
+                            if b3p == barcode_match:
+                                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                                if sample_name in bam_files:
+                                    bam_files[sample_name].write(read)
+                                    stats['barcode_combinations'][sample_name] += 1
+                                    stats['demultiplexed_reads'] += 1
+                                    assigned = True
+                                    break
+                
+                if not assigned:
+                    unassigned_file.write(read)
+                    stats['unassigned_reads'] += 1
+        
+        # Close all BAM files
+        for bam_file_obj in bam_files.values():
+            bam_file_obj.close()
+        unassigned_file.close()
+        
+        # Index all demultiplexed BAM files
+        for bam_path in stats['output_files'].values():
+            if bam_path != unassigned_bam:  # Don't index unassigned file
+                index_bam(bam_path)
+        
+        # Log statistics
+        logger.log_message(f"Demultiplexing completed:")
+        logger.log_message(f"  Total reads: {stats['total_reads']}")
+        logger.log_message(f"  Demultiplexed reads: {stats['demultiplexed_reads']}")
+        logger.log_message(f"  Unassigned reads: {stats['unassigned_reads']}")
+        logger.log_message(f"  Demultiplexing rate: {stats['demultiplexed_reads']/stats['total_reads']:.2%}")
+        
+        for combo, count in stats['barcode_combinations'].items():
+            logger.log_message(f"  {combo}: {count} reads")
+        
+        return stats
+        
+    except Exception as e:
+        logger.log_message(f"Error during demultiplexing: {e}")
+        return None
+
+
+def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, threads=4,
+                demultiplex_csv=None, search_window_5p=100, search_window_3p=100, mismatch_threshold=2):
+    """
+    Complete mapping pipeline: filter -> map+sort -> index -> demultiplex (optional)
     
     Args:
         reference (str): Path to reference genome
@@ -172,6 +407,10 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
         min_length (int): Minimum read length for filtering
         min_quality (int): Minimum average quality score for filtering
         threads (int): Number of threads to use
+        demultiplex_csv (str): Path to CSV file with barcode information (optional)
+        search_window_5p (int): Number of bases to search from start for 5' barcodes
+        search_window_3p (int): Number of bases to search from end for 3' barcodes
+        mismatch_threshold (int): Maximum mismatches allowed for barcode matching
     
     Returns:
         dict: Dictionary with output file paths, or None if failed
@@ -210,6 +449,28 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
         logger.log_message("BAM indexing failed")
         return None
     
+    # Step 5: Demultiplex (if CSV provided)
+    demux_stats = None
+    if demultiplex_csv:
+        logger.log_message("Step 5: Loading barcodes and demultiplexing reads")
+        barcodes = load_barcodes_from_csv(demultiplex_csv)
+        if barcodes:
+            demux_stats = demultiplex_reads_fuzzy(
+                bam_file, output_dir, 
+                barcodes_5p=barcodes['5p'] if barcodes['5p'] else None,
+                barcodes_3p=barcodes['3p'] if barcodes['3p'] else None,
+                sample_names=barcodes['samples'] if barcodes['samples'] else None,
+                search_window_5p=search_window_5p,
+                search_window_3p=search_window_3p,
+                mismatch_threshold=mismatch_threshold
+            )
+            if not demux_stats:
+                logger.log_message("Demultiplexing failed")
+                return None
+        else:
+            logger.log_message("Failed to load barcodes from CSV")
+            return None
+    
     # Return output file paths
     output_files = {
         'filtered_fastq': filtered_fastq,
@@ -217,10 +478,18 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
         'bam_index': bam_file + '.bai'
     }
     
+    if demux_stats:
+        output_files['demultiplexed_files'] = demux_stats['output_files']
+        output_files['demultiplexing_stats'] = demux_stats
+    
     logger.log_message(f"Mapping pipeline completed successfully")
     logger.log_message(f"Output files:")
     for key, path in output_files.items():
-        logger.log_message(f"  {key}: {path}")
+        if key not in ['demultiplexed_files', 'demultiplexing_stats']:
+            logger.log_message(f"  {key}: {path}")
+    
+    if demux_stats:
+        logger.log_message(f"  Demultiplexed files: {len(demux_stats['output_files'])} files in demultiplexed/ directory")
     
     return output_files
 
