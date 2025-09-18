@@ -92,11 +92,10 @@ def extract(reference, alignment, min_read_length, motif, output):
 @click.option('--min-length', default=1000, type=int, help="Minimum read length for filtering")
 @click.option('--min-quality', default=7, type=int, help="Minimum average quality score for filtering")
 @click.option('--threads', default=4, type=int, help="Number of threads to use")
-@click.option('--demultiplex-csv', help="CSV file with barcode information for demultiplexing (optional)")
-@click.option('--search-window-5p', default=100, type=int, help="Number of bases to search from start for 5' barcodes")
-@click.option('--search-window-3p', default=100, type=int, help="Number of bases to search from end for 3' barcodes")
+@click.option('--sample-sheet', help="CSV file with barcode information for demultiplexing (optional)")
+@click.option('--search-window', default=200, type=int, help="Number of bases to search from each end for barcodes")
 @click.option('--mismatch-threshold', default=2, type=int, help="Maximum mismatches allowed for barcode matching")
-def map(reference, fastq, output_dir, min_length, min_quality, threads, demultiplex_csv, search_window_5p, search_window_3p, mismatch_threshold):
+def map(reference, fastq, output_dir, min_length, min_quality, threads, sample_sheet, search_window, mismatch_threshold):
     """Map FASTQ reads to reference using minimap2 with filtering, sorting, indexing, and optional demultiplexing"""
     result = map_pipeline(
         reference=reference,
@@ -105,18 +104,13 @@ def map(reference, fastq, output_dir, min_length, min_quality, threads, demultip
         min_length=min_length,
         min_quality=min_quality,
         threads=threads,
-        demultiplex_csv=demultiplex_csv,
-        search_window_5p=search_window_5p,
-        search_window_3p=search_window_3p,
+        sample_sheet=sample_sheet,
+        search_window=search_window,
         mismatch_threshold=mismatch_threshold
     )
     
     if result:
         print("✅ Mapping pipeline completed successfully!")
-        print("Output files:")
-        for key, path in result.items():
-            if key not in ['demultiplexed_files', 'demultiplexing_stats']:
-                print(f"  {key}: {path}")
         
         # Show demultiplexing statistics if available
         if 'demultiplexing_stats' in result:

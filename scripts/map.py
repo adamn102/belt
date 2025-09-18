@@ -166,7 +166,7 @@ def load_barcodes_from_csv(csv_file):
     Load barcodes from CSV file
     
     Expected CSV format:
-    barcode_5p,barcode_3p,sample_name
+    barcode_1,barcode_2,sample_name
     ATCGATCGATCGATC,TTTTTTTTTTTTTT,sample1
     GCATGCATGCATGC,CCCCCCCCCCCCCC,sample2
     
@@ -185,10 +185,10 @@ def load_barcodes_from_csv(csv_file):
         with open(csv_file, 'r') as f:
             reader = csv.DictReader(f)
             for row in reader:
-                if 'barcode_5p' in row and row['barcode_5p'].strip():
-                    barcodes['5p'].append(row['barcode_5p'].strip())
-                if 'barcode_3p' in row and row['barcode_3p'].strip():
-                    barcodes['3p'].append(row['barcode_3p'].strip())
+                if 'barcode_1' in row and row['barcode_1'].strip():
+                    barcodes['5p'].append(row['barcode_1'].strip())
+                if 'barcode_2' in row and row['barcode_2'].strip():
+                    barcodes['3p'].append(row['barcode_2'].strip())
                 if 'sample_name' in row and row['sample_name'].strip():
                     barcodes['samples'].append(row['sample_name'].strip())
         
@@ -196,6 +196,221 @@ def load_barcodes_from_csv(csv_file):
     except Exception as e:
         logger = log()
         logger.log_message(f"Error loading barcodes from CSV: {e}")
+        return None
+
+
+def demultiplex_fastq_reads(input_fastq, output_dir, barcodes_1=None, barcodes_2=None, 
+                           sample_names=None, search_window=200, mismatch_threshold=2):
+    """
+    Demultiplex FASTQ reads using fuzzy matching within specified windows
+    
+    Args:
+        input_fastq (str): Path to input FASTQ file
+        output_dir (str): Path to output directory
+        barcodes_1 (list): List of barcode_1 sequences (from CSV column 1)
+        barcodes_2 (list): List of barcode_2 sequences (from CSV column 2)
+        sample_names (list): List of sample names
+        search_window (int): Number of bases to search from each end (default 200bp)
+        mismatch_threshold (int): Maximum mismatches allowed for barcode matching
+    
+    Returns:
+        dict: Demultiplexing statistics and output files
+    """
+    logger = log()
+    logger.log_message(f"Demultiplexing FASTQ reads from {input_fastq} using fuzzy matching")
+    
+    try:
+        from Bio import SeqIO
+        
+        # Create demultiplexed output directory
+        demux_dir = os.path.join(output_dir, "demultiplexed_fastq")
+        os.makedirs(demux_dir, exist_ok=True)
+        
+        # Initialize statistics
+        stats = {
+            'total_reads': 0,
+            'demultiplexed_reads': 0,
+            'unassigned_reads': 0,
+            'barcode_combinations': {},
+            'output_files': {}
+        }
+        
+        # Combine all barcodes into one array for searching
+        all_barcodes = []
+        if barcodes_1:
+            all_barcodes.extend(barcodes_1)
+        if barcodes_2:
+            all_barcodes.extend(barcodes_2)
+        
+        # Remove duplicates while preserving order
+        all_barcodes = list(dict.fromkeys(all_barcodes))
+        
+        # Create output FASTQ files for each sample
+        fastq_files = {}
+        if barcodes_1 and barcodes_2:
+            # Both barcode_1 and barcode_2
+            for i, (b1, b2) in enumerate(zip(barcodes_1, barcodes_2)):
+                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                fastq_path = os.path.join(demux_dir, f"{sample_name}.fastq")
+                fastq_files[sample_name] = open(fastq_path, 'w')
+                stats['barcode_combinations'][sample_name] = 0
+                stats['output_files'][sample_name] = fastq_path
+        elif barcodes_1:
+            # Only barcode_1
+            for i, b1 in enumerate(barcodes_1):
+                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                fastq_path = os.path.join(demux_dir, f"{sample_name}.fastq")
+                fastq_files[sample_name] = open(fastq_path, 'w')
+                stats['barcode_combinations'][sample_name] = 0
+                stats['output_files'][sample_name] = fastq_path
+        elif barcodes_2:
+            # Only barcode_2
+            for i, b2 in enumerate(barcodes_2):
+                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                fastq_path = os.path.join(demux_dir, f"{sample_name}.fastq")
+                fastq_files[sample_name] = open(fastq_path, 'w')
+                stats['barcode_combinations'][sample_name] = 0
+                stats['output_files'][sample_name] = fastq_path
+        
+        # Unassigned reads file
+        unassigned_fastq = os.path.join(demux_dir, "unassigned.fastq")
+        unassigned_file = open(unassigned_fastq, 'w')
+        stats['output_files']['unassigned'] = unassigned_fastq
+        
+        def calculate_mismatches(seq1, seq2):
+            """Calculate number of mismatches between two sequences"""
+            if len(seq1) != len(seq2):
+                return float('inf')
+            return sum(1 for a, b in zip(seq1, seq2) if a != b)
+        
+        def find_best_barcode_match(sequence, barcodes, search_window, is_3p=False):
+            """Find the best matching barcode with minimum mismatches within search window"""
+            best_match = None
+            min_mismatches = float('inf')
+            best_position = -1
+            
+            # Determine search region
+            if is_3p:
+                # Search from the end
+                search_start = max(0, len(sequence) - search_window)
+                search_sequence = sequence[search_start:]
+                search_offset = search_start
+            else:
+                # Search from the beginning
+                search_sequence = sequence[:search_window]
+                search_offset = 0
+            
+            for barcode in barcodes:
+                # Check all possible positions in the search region
+                for i in range(len(search_sequence) - len(barcode) + 1):
+                    subsequence = search_sequence[i:i+len(barcode)]
+                    mismatches = calculate_mismatches(subsequence, barcode)
+                    
+                    if mismatches <= mismatch_threshold and mismatches < min_mismatches:
+                        min_mismatches = mismatches
+                        best_match = barcode
+                        best_position = search_offset + i
+            
+            return best_match, min_mismatches, best_position
+        
+        # Process each read
+        with open(input_fastq, 'r') as infile:
+            for record in SeqIO.parse(infile, 'fastq'):
+                stats['total_reads'] += 1
+                sequence = str(record.seq)
+                assigned = False
+                
+                if barcodes_1 and barcodes_2:
+                    # Both barcode_1 and barcode_2
+                    barcode_1_match, mismatches_1, pos_1 = find_best_barcode_match(sequence, barcodes_1, search_window, is_3p=False)
+                    barcode_2_match, mismatches_2, pos_2 = find_best_barcode_match(sequence, barcodes_2, search_window, is_3p=True)
+                    
+                    # Try exact match first (both barcodes found)
+                    if barcode_1_match and barcode_2_match:
+                        # Find the index of the matching combination
+                        for i, (b1, b2) in enumerate(zip(barcodes_1, barcodes_2)):
+                            if b1 == barcode_1_match and b2 == barcode_2_match:
+                                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                                if sample_name in fastq_files:
+                                    # Add barcode information to read name
+                                    record.id = f"{record.id}_barcode1:{barcode_1_match}_barcode2:{barcode_2_match}_pos1:{pos_1}_pos2:{pos_2}"
+                                    SeqIO.write(record, fastq_files[sample_name], 'fastq')
+                                    stats['barcode_combinations'][sample_name] += 1
+                                    stats['demultiplexed_reads'] += 1
+                                    assigned = True
+                                    break
+                    
+                    # If no exact match, try with only barcode_1 (fallback)
+                    elif barcode_1_match:
+                        # Find the index of the matching barcode_1
+                        for i, b1 in enumerate(barcodes_1):
+                            if b1 == barcode_1_match:
+                                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                                if sample_name in fastq_files:
+                                    # Add barcode information to read name
+                                    record.id = f"{record.id}_barcode1:{barcode_1_match}_pos1:{pos_1}_barcode2:not_found"
+                                    SeqIO.write(record, fastq_files[sample_name], 'fastq')
+                                    stats['barcode_combinations'][sample_name] += 1
+                                    stats['demultiplexed_reads'] += 1
+                                    assigned = True
+                                    break
+                
+                elif barcodes_1:
+                    # Only barcode_1
+                    barcode_match, mismatches, pos = find_best_barcode_match(sequence, barcodes_1, search_window, is_3p=False)
+                    if barcode_match:
+                        for i, b1 in enumerate(barcodes_1):
+                            if b1 == barcode_match:
+                                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                                if sample_name in fastq_files:
+                                    # Add barcode information to read name
+                                    record.id = f"{record.id}_barcode1:{barcode_match}_pos:{pos}"
+                                    SeqIO.write(record, fastq_files[sample_name], 'fastq')
+                                    stats['barcode_combinations'][sample_name] += 1
+                                    stats['demultiplexed_reads'] += 1
+                                    assigned = True
+                                    break
+                
+                elif barcodes_2:
+                    # Only barcode_2
+                    barcode_match, mismatches, pos = find_best_barcode_match(sequence, barcodes_2, search_window, is_3p=True)
+                    if barcode_match:
+                        for i, b2 in enumerate(barcodes_2):
+                            if b2 == barcode_match:
+                                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
+                                if sample_name in fastq_files:
+                                    # Add barcode information to read name
+                                    record.id = f"{record.id}_barcode2:{barcode_match}_pos:{pos}"
+                                    SeqIO.write(record, fastq_files[sample_name], 'fastq')
+                                    stats['barcode_combinations'][sample_name] += 1
+                                    stats['demultiplexed_reads'] += 1
+                                    assigned = True
+                                    break
+                
+                if not assigned:
+                    # Write to unassigned file
+                    SeqIO.write(record, unassigned_file, 'fastq')
+                    stats['unassigned_reads'] += 1
+        
+        # Close all files
+        for file_handle in fastq_files.values():
+            file_handle.close()
+        unassigned_file.close()
+        
+        # Log statistics
+        logger.log_message(f"Demultiplexing completed:")
+        logger.log_message(f"  Total reads: {stats['total_reads']}")
+        logger.log_message(f"  Demultiplexed reads: {stats['demultiplexed_reads']}")
+        logger.log_message(f"  Unassigned reads: {stats['unassigned_reads']}")
+        logger.log_message(f"  Demultiplexing rate: {stats['demultiplexed_reads']/stats['total_reads']*100:.1f}%")
+        
+        for sample, count in stats['barcode_combinations'].items():
+            logger.log_message(f"  {sample}: {count} reads")
+        
+        return stats
+        
+    except Exception as e:
+        logger.log_message(f"Error during FASTQ demultiplexing: {str(e)}")
         return None
 
 
@@ -321,13 +536,13 @@ def demultiplex_reads_fuzzy(bam_file, output_dir, barcodes_5p=None, barcodes_3p=
                 
                 if barcodes_5p and barcodes_3p:
                     # Both 5' and 3' barcodes
-                    barcode_5p_match = find_best_barcode_match(sequence, barcodes_5p, search_window_5p, is_3p=False)
-                    barcode_3p_match = find_best_barcode_match(sequence, barcodes_3p, search_window_3p, is_3p=True)
+                    barcode_1_match = find_best_barcode_match(sequence, barcodes_5p, search_window_5p, is_3p=False)
+                    barcode_2_match = find_best_barcode_match(sequence, barcodes_3p, search_window_3p, is_3p=True)
                     
-                    if barcode_5p_match and barcode_3p_match:
+                    if barcode_1_match and barcode_2_match:
                         # Find the index of the matching combination
                         for i, (b5p, b3p) in enumerate(zip(barcodes_5p, barcodes_3p)):
-                            if b5p == barcode_5p_match and b3p == barcode_3p_match:
+                            if b5p == barcode_1_match and b3p == barcode_2_match:
                                 sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
                                 if sample_name in bam_files:
                                     bam_files[sample_name].write(read)
@@ -395,10 +610,81 @@ def demultiplex_reads_fuzzy(bam_file, output_dir, barcodes_5p=None, barcodes_3p=
         return None
 
 
-def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, threads=4,
-                demultiplex_csv=None, search_window_5p=100, search_window_3p=100, mismatch_threshold=2):
+def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=1000, min_quality=7, threads=4):
     """
-    Complete mapping pipeline: filter -> map+sort -> index -> demultiplex (optional)
+    Map a single FASTQ file to reference and create BAM and index files
+    
+    Args:
+        reference (str): Path to reference genome
+        fastq (str): Path to input FASTQ file
+        output_dir (str): Path to output directory
+        sample_name (str): Name of the sample
+        min_length (int): Minimum read length for filtering
+        min_quality (int): Minimum average quality score for filtering
+        threads (int): Number of threads to use
+    
+    Returns:
+        dict: Dictionary with output file paths, or None if failed
+    """
+    logger = log()
+    logger.log_message(f"Mapping individual sample: {sample_name}")
+    
+    # Create sample-specific output directory
+    sample_dir = os.path.join(output_dir, sample_name)
+    os.makedirs(sample_dir, exist_ok=True)
+    
+    # Generate output file paths
+    filtered_fastq = os.path.join(sample_dir, f"{sample_name}_filtered.fastq")
+    bam_file = os.path.join(sample_dir, f"{sample_name}.bam")
+    temp_bam = os.path.join(sample_dir, f"{sample_name}_temp.bam")
+    
+    # Step 1: Filter FASTQ
+    logger.log_message(f"Step 1: Filtering FASTQ file for {sample_name}")
+    if not filter_fastq(fastq, filtered_fastq, min_length, min_quality):
+        logger.log_message(f"FASTQ filtering failed for {sample_name}")
+        return None
+    
+    # Step 2: Run minimap2 and sort in one step
+    logger.log_message(f"Step 2: Running minimap2 alignment and sorting for {sample_name}")
+    if not run_minimap2_to_sorted(reference, filtered_fastq, temp_bam, threads):
+        logger.log_message(f"minimap2 alignment and sorting failed for {sample_name}")
+        return None
+    
+    # Step 3: Move temp file to final location
+    logger.log_message(f"Step 3: Finalizing BAM file for {sample_name}")
+    os.rename(temp_bam, bam_file)
+    
+    # Step 4: Index BAM
+    logger.log_message(f"Step 4: Indexing BAM file for {sample_name}")
+    if not index_bam(bam_file):
+        logger.log_message(f"BAM indexing failed for {sample_name}")
+        return None
+    
+    # Return output file paths
+    output_files = {
+        'filtered_fastq': filtered_fastq,
+        'bam_file': bam_file,
+        'bam_index': bam_file + '.bai'
+    }
+    
+    logger.log_message(f"Mapping completed successfully for {sample_name}")
+    return output_files
+
+
+def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, threads=4,
+                sample_sheet=None, search_window=200, mismatch_threshold=2):
+    """
+    Complete mapping pipeline with FASTQ demultiplexing support
+    
+    If sample_sheet is provided:
+        1. Demultiplex FASTQ reads using barcode matching
+        2. Map each demultiplexed FASTQ to reference
+        3. Create BAM and index files for each sample
+    
+    If no sample_sheet is provided:
+        1. Filter FASTQ
+        2. Map to reference
+        3. Create BAM and index files
     
     Args:
         reference (str): Path to reference genome
@@ -407,9 +693,8 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
         min_length (int): Minimum read length for filtering
         min_quality (int): Minimum average quality score for filtering
         threads (int): Number of threads to use
-        demultiplex_csv (str): Path to CSV file with barcode information (optional)
-        search_window_5p (int): Number of bases to search from start for 5' barcodes
-        search_window_3p (int): Number of bases to search from end for 3' barcodes
+        sample_sheet (str): Path to CSV file with barcode information (optional)
+        search_window (int): Number of bases to search from each end for barcodes (default 200bp)
         mismatch_threshold (int): Maximum mismatches allowed for barcode matching
     
     Returns:
@@ -421,75 +706,77 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
-    # Generate output file paths
-    sample_name = Path(fastq).stem
-    filtered_fastq = os.path.join(output_dir, f"{sample_name}_filtered.fastq")
-    bam_file = os.path.join(output_dir, f"{sample_name}.bam")
-    temp_bam = os.path.join(output_dir, f"{sample_name}_temp.bam")
+    # If no sample sheet provided, do simple mapping
+    if not sample_sheet:
+        logger.log_message("No sample sheet provided, performing simple mapping")
+        sample_name = Path(fastq).stem
+        return map_individual_sample(reference, fastq, output_dir, sample_name, 
+                                   min_length, min_quality, threads)
     
-    # Step 1: Filter FASTQ
-    logger.log_message("Step 1: Filtering FASTQ file")
-    if not filter_fastq(fastq, filtered_fastq, min_length, min_quality):
-        logger.log_message("FASTQ filtering failed")
+    # Load barcodes from sample sheet
+    logger.log_message("Step 1: Loading barcodes from sample sheet")
+    barcodes = load_barcodes_from_csv(sample_sheet)
+    if not barcodes:
+        logger.log_message("Failed to load barcodes from sample sheet")
         return None
     
-    # Step 2: Run minimap2 and sort in one step
-    logger.log_message("Step 2: Running minimap2 alignment and sorting")
-    if not run_minimap2_to_sorted(reference, filtered_fastq, temp_bam, threads):
-        logger.log_message("minimap2 alignment and sorting failed")
+    # Demultiplex FASTQ reads
+    logger.log_message("Step 2: Demultiplexing FASTQ reads")
+    demux_stats = demultiplex_fastq_reads(
+        fastq, output_dir,
+        barcodes_1=barcodes['5p'] if barcodes['5p'] else None,
+        barcodes_2=barcodes['3p'] if barcodes['3p'] else None,
+        sample_names=barcodes['samples'] if barcodes['samples'] else None,
+        search_window=search_window,
+        mismatch_threshold=mismatch_threshold
+    )
+    
+    if not demux_stats:
+        logger.log_message("FASTQ demultiplexing failed")
         return None
     
-    # Step 3: Move temp file to final location
-    logger.log_message("Step 3: Finalizing BAM file")
-    os.rename(temp_bam, bam_file)
+    # Map each demultiplexed FASTQ file
+    logger.log_message("Step 3: Mapping demultiplexed samples")
+    sample_results = {}
     
-    # Step 4: Index BAM
-    logger.log_message("Step 4: Indexing BAM file")
-    if not index_bam(bam_file):
-        logger.log_message("BAM indexing failed")
-        return None
-    
-    # Step 5: Demultiplex (if CSV provided)
-    demux_stats = None
-    if demultiplex_csv:
-        logger.log_message("Step 5: Loading barcodes and demultiplexing reads")
-        barcodes = load_barcodes_from_csv(demultiplex_csv)
-        if barcodes:
-            demux_stats = demultiplex_reads_fuzzy(
-                bam_file, output_dir, 
-                barcodes_5p=barcodes['5p'] if barcodes['5p'] else None,
-                barcodes_3p=barcodes['3p'] if barcodes['3p'] else None,
-                sample_names=barcodes['samples'] if barcodes['samples'] else None,
-                search_window_5p=search_window_5p,
-                search_window_3p=search_window_3p,
-                mismatch_threshold=mismatch_threshold
-            )
-            if not demux_stats:
-                logger.log_message("Demultiplexing failed")
-                return None
+    for sample_name, fastq_path in demux_stats['output_files'].items():
+        if sample_name == 'unassigned':
+            continue
+            
+        logger.log_message(f"Mapping sample: {sample_name}")
+        result = map_individual_sample(
+            reference, fastq_path, output_dir, sample_name,
+            min_length, min_quality, threads
+        )
+        
+        if result:
+            sample_results[sample_name] = result
+            logger.log_message(f"Successfully mapped {sample_name}")
         else:
-            logger.log_message("Failed to load barcodes from CSV")
-            return None
+            logger.log_message(f"Failed to map {sample_name}")
     
-    # Return output file paths
+    # Handle unassigned reads if they exist
+    unassigned_fastq = demux_stats['output_files'].get('unassigned')
+    if unassigned_fastq and os.path.exists(unassigned_fastq) and os.path.getsize(unassigned_fastq) > 0:
+        logger.log_message("Mapping unassigned reads")
+        result = map_individual_sample(
+            reference, unassigned_fastq, output_dir, "unassigned",
+            min_length, min_quality, threads
+        )
+        if result:
+            sample_results['unassigned'] = result
+    
+    # Return comprehensive results
     output_files = {
-        'filtered_fastq': filtered_fastq,
-        'bam_file': bam_file,
-        'bam_index': bam_file + '.bai'
+        'demultiplexing_stats': demux_stats,
+        'sample_results': sample_results,
+        'total_samples': len(sample_results)
     }
     
-    if demux_stats:
-        output_files['demultiplexed_files'] = demux_stats['output_files']
-        output_files['demultiplexing_stats'] = demux_stats
-    
     logger.log_message(f"Mapping pipeline completed successfully")
-    logger.log_message(f"Output files:")
-    for key, path in output_files.items():
-        if key not in ['demultiplexed_files', 'demultiplexing_stats']:
-            logger.log_message(f"  {key}: {path}")
-    
-    if demux_stats:
-        logger.log_message(f"  Demultiplexed files: {len(demux_stats['output_files'])} files in demultiplexed/ directory")
+    logger.log_message(f"Total samples processed: {len(sample_results)}")
+    for sample_name in sample_results.keys():
+        logger.log_message(f"  {sample_name}: mapped successfully")
     
     return output_files
 

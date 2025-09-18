@@ -101,15 +101,14 @@ Map FASTQ reads to reference using minimap2 with filtering, sorting, indexing, a
   --reference reference.fasta \
   --fastq input.fastq \
   --output-dir output_directory \
-  --demultiplex-csv barcodes.csv \
-  --search-window-5p 100 \
-  --search-window-3p 100 \
+  --sample-sheet barcodes.csv \
+  --search-window 200 \
   --mismatch-threshold 2
 ```
 
 **CSV Format Example (barcodes.csv):**
 ```csv
-barcode_5p,barcode_3p,sample_name
+barcode_1,barcode_2,sample_name
 ATCGATCGATCGATC,TTTTTTTTTTTTTT,sample1
 GCATGCATGCATGC,CCCCCCCCCCCCCC,sample2
 TTTTTTTTTTTTTT,AAAAAAAAAAAAAA,sample3
