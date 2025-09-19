@@ -48,6 +48,25 @@ BELT is a toolkit designed for processing and analyzing long-read sequencing dat
 
 That's it! You're ready to use BELT.
 
+### 🖥️ Cluster Installation
+
+To use BELT on cluster systems (HPC, SLURM, etc.), you can set up a global alias:
+
+1. **Add belt to your PATH:**
+   ```bash
+   echo 'export PATH="/path/to/belt:$PATH"' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+2. **Create an alias for easy access:**
+   ```bash
+   echo 'alias belt="/path/to/belt/belt-cmd"' >> ~/.bashrc
+   source ~/.bashrc
+   belt --help
+   ```
+
+Replace `/path/to/belt` with the actual path to your belt installation directory.
+
 ### 🧪 Try the Demo Pipeline
 
 Want to see BELT in action? Run the complete demo pipeline:
