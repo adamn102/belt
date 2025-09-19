@@ -6,5 +6,10 @@
 # Get the directory where this script is located
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# If we're running from a symlink, get the actual directory
+if [ -L "${BASH_SOURCE[0]}" ]; then
+    SCRIPT_DIR="$(cd "$(dirname "$(readlink "${BASH_SOURCE[0]}")")" && pwd)"
+fi
+
 # Run the belt.py script
 python3 "$SCRIPT_DIR/belt.py" "$@"
