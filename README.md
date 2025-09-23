@@ -149,6 +149,38 @@ This command will:
   - `{sample_name}.bam`: BAM file for each sample (using names from CSV)
   - `unassigned.bam`: Reads that couldn't be assigned to any barcode
 
+
+##### Output Folder Structure
+
+- With sample sheet (demultiplexing first)
+```text
+output_dir/
+├─ demultiplexed_fastq/
+│  ├─ SAMPLE_A.fastq
+│  ├─ SAMPLE_B.fastq
+│  ├─ ...
+│  └─ unassigned.fastq
+├─ SAMPLE_A/
+│  ├─ SAMPLE_A_filtered.fastq
+│  ├─ SAMPLE_A.bam
+│  └─ SAMPLE_A.bam.bai
+├─ SAMPLE_B/
+│  ├─ SAMPLE_B_filtered.fastq
+│  ├─ SAMPLE_B.bam
+│  └─ SAMPLE_B.bam.bai
+└─ unassigned/            (only if unassigned.fastq has reads)
+   ├─ unassigned_filtered.fastq
+   ├─ unassigned.bam
+   └─ unassigned.bam.bai
+```
+
+- Without sample sheet (simple mapping)
+```text
+output_dir/
+├─ <input_basename>_filtered.fastq
+├─ <input_basename>.bam
+└─ <input_basename>.bam.bai
+```
 #### Extract Command
 Extract reads based on motifs and UMIs:
 
