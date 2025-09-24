@@ -69,10 +69,18 @@ if ! command -v dorado &> /dev/null; then
     exit 1
 fi
 
+# Check Dorado version and available commands
+echo "Dorado version:"
+dorado --version
+echo "Available dorado commands:"
+dorado --help
+
 # Run the dorado demultiplexing script
 echo "Starting Dorado demultiplexing..."
-$SLURM_SUBMIT_DIR/run_dorado.sh $INPUT_FASTQ $OUTPUT_DIR $KIT_NAME $BARCODE_FILE $THREADS
+echo "Running: $SLURM_SUBMIT_DIR/run_dorado.sh $INPUT_FASTQ $OUTPUT_DIR $KIT_NAME $BARCODE_FILE $THREADS"
+$SLURM_SUBMIT_DIR/run_dorado.sh $INPUT_FASTQ $OUTPUT_DIR $KIT_NAME $BARCODE_FILE $THREADS 2>&1
 DORADO_EXIT_CODE=$?
+echo "Dorado script exit code: $DORADO_EXIT_CODE"
 
 # Check if the job completed successfully
 if [ $DORADO_EXIT_CODE -eq 0 ]; then

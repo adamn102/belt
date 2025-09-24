@@ -96,12 +96,24 @@ echo "Barcode file: $BARCODE_FILE"
 echo "Threads: $THREADS"
 
 # Run Dorado with custom barcodes
+# Create barcode arrangement file path
+BARCODE_ARRANGEMENT_FILE="barcode_arrangement.txt"
+
+# Check if barcode arrangement file exists
+if [ ! -f "$BARCODE_ARRANGEMENT_FILE" ]; then
+    echo "Error: Barcode arrangement file $BARCODE_ARRANGEMENT_FILE not found!"
+    echo "Please create a barcode arrangement file with the format:"
+    echo "barcode_name,sequence,position"
+    exit 1
+fi
+
+# Run Dorado with custom barcodes
 dorado basecaller \
-    --barcode-kits custom \
     --kit-name $KIT_NAME \
+    --barcode-arrangement $BARCODE_ARRANGEMENT_FILE \
     --barcode-sequences $BARCODE_FILE \
     --output-dir $OUTPUT_DIR \
-    --threads $THREADS \
+    fast \
     $INPUT_FASTQ
 
 echo "Dorado demultiplexing completed!"
