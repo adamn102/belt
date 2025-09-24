@@ -269,6 +269,12 @@ def demultiplex_fastq_reads(input_fastq, output_dir, barcodes_1=None, barcodes_2
             'output_files': {}
         }
         
+        # Create CSV file for barcode extraction results
+        csv_output_path = os.path.join(demux_dir, "barcode_extraction_results.csv")
+        csv_file = open(csv_output_path, 'w')
+        csv_file.write("read_name,sequence_length,5p_barcode_found,5p_barcode_sequence,5p_mismatches,5p_position,5p_reverse_complement,3p_barcode_found,3p_barcode_sequence,3p_mismatches,3p_position,3p_reverse_complement,assigned_sample,assignment_reason\n")
+        stats['output_files']['barcode_csv'] = csv_output_path
+        
         # Combine all barcodes into one array for searching
         all_barcodes = []
         if barcodes_1:
@@ -373,12 +379,32 @@ def demultiplex_fastq_reads(input_fastq, output_dir, barcodes_1=None, barcodes_2
                 sequence = str(record.seq)
                 assigned = False
                 
+                # Initialize barcode tracking variables for CSV output
+                barcode_1_match = None
+                barcode_1_mismatches = None
+                barcode_1_position = None
+                barcode_1_rc = None
+                barcode_2_match = None
+                barcode_2_mismatches = None
+                barcode_2_position = None
+                barcode_2_rc = None
+                assigned_sample = None
+                assignment_reason = None
+                
                 if barcodes_1 and barcodes_2:
                     # Both barcode_1 and barcode_2
                     barcode_1_match, mismatches_1, pos_1, rc_1 = find_best_barcode_match(sequence, barcodes_1, search_window, is_3p=False)
                     barcode_2_match, mismatches_2, pos_2, rc_2 = find_best_barcode_match(sequence, barcodes_2, search_window, is_3p=True)
                     
-                    # Try exact match first (both barcodes found)
+                    # Store results for CSV
+                    barcode_1_mismatches = mismatches_1 if barcode_1_match else None
+                    barcode_1_position = pos_1 if barcode_1_match else None
+                    barcode_1_rc = rc_1 if barcode_1_match else None
+                    barcode_2_mismatches = mismatches_2 if barcode_2_match else None
+                    barcode_2_position = pos_2 if barcode_2_match else None
+                    barcode_2_rc = rc_2 if barcode_2_match else None
+                    
+                    # Only assign if both barcodes are found (no fallback)
                     if barcode_1_match and barcode_2_match:
                         # Find the index of the matching combination
                         for i, (b1, b2) in enumerate(zip(barcodes_1, barcodes_2)):
@@ -389,24 +415,18 @@ def demultiplex_fastq_reads(input_fastq, output_dir, barcodes_1=None, barcodes_2
                                     stats['barcode_combinations'][sample_name] += 1
                                     stats['demultiplexed_reads'] += 1
                                     assigned = True
-                                    break
-                    
-                    # If no exact match, try with only barcode_1 (fallback)
-                    elif barcode_1_match:
-                        # Find the index of the matching barcode_1
-                        for i, b1 in enumerate(barcodes_1):
-                            if b1 == barcode_1_match:
-                                sample_name = sample_names[i] if sample_names and i < len(sample_names) else f"sample_{i+1}"
-                                if sample_name in fastq_files:
-                                    SeqIO.write(record, fastq_files[sample_name], 'fastq')
-                                    stats['barcode_combinations'][sample_name] += 1
-                                    stats['demultiplexed_reads'] += 1
-                                    assigned = True
+                                    assigned_sample = sample_name
+                                    assignment_reason = "both_barcodes_match"
                                     break
                 
                 elif barcodes_1:
                     # Only barcode_1
                     barcode_match, mismatches, pos, rc = find_best_barcode_match(sequence, barcodes_1, search_window, is_3p=False)
+                    barcode_1_match = barcode_match
+                    barcode_1_mismatches = mismatches if barcode_match else None
+                    barcode_1_position = pos if barcode_match else None
+                    barcode_1_rc = rc if barcode_match else None
+                    
                     if barcode_match:
                         for i, b1 in enumerate(barcodes_1):
                             if b1 == barcode_match:
@@ -416,11 +436,18 @@ def demultiplex_fastq_reads(input_fastq, output_dir, barcodes_1=None, barcodes_2
                                     stats['barcode_combinations'][sample_name] += 1
                                     stats['demultiplexed_reads'] += 1
                                     assigned = True
+                                    assigned_sample = sample_name
+                                    assignment_reason = "5p_barcode_match"
                                     break
                 
                 elif barcodes_2:
                     # Only barcode_2
                     barcode_match, mismatches, pos, rc = find_best_barcode_match(sequence, barcodes_2, search_window, is_3p=True)
+                    barcode_2_match = barcode_match
+                    barcode_2_mismatches = mismatches if barcode_match else None
+                    barcode_2_position = pos if barcode_match else None
+                    barcode_2_rc = rc if barcode_match else None
+                    
                     if barcode_match:
                         for i, b2 in enumerate(barcodes_2):
                             if b2 == barcode_match:
@@ -430,17 +457,28 @@ def demultiplex_fastq_reads(input_fastq, output_dir, barcodes_1=None, barcodes_2
                                     stats['barcode_combinations'][sample_name] += 1
                                     stats['demultiplexed_reads'] += 1
                                     assigned = True
+                                    assigned_sample = sample_name
+                                    assignment_reason = "3p_barcode_match"
                                     break
                 
                 if not assigned:
                     # Write to unassigned file
                     SeqIO.write(record, unassigned_file, 'fastq')
                     stats['unassigned_reads'] += 1
+                    assigned_sample = "unassigned"
+                    assignment_reason = "no_barcode_match"
+                
+                # Write barcode extraction results to CSV
+                csv_file.write(f"{record.id},{len(sequence)},")
+                csv_file.write(f"{'Yes' if barcode_1_match else 'No'},{barcode_1_match or 'None'},{barcode_1_mismatches or 'None'},{barcode_1_position or 'None'},{barcode_1_rc or 'None'},")
+                csv_file.write(f"{'Yes' if barcode_2_match else 'No'},{barcode_2_match or 'None'},{barcode_2_mismatches or 'None'},{barcode_2_position or 'None'},{barcode_2_rc or 'None'},")
+                csv_file.write(f"{assigned_sample or 'None'},{assignment_reason or 'None'}\n")
         
         # Close all files
         for file_handle in fastq_files.values():
             file_handle.close()
         unassigned_file.close()
+        csv_file.close()
         
         # Log statistics
         logger.log_message(f"Demultiplexing completed:")

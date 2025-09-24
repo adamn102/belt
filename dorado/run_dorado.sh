@@ -5,7 +5,7 @@
 set -e
 
 # Default values
-DEFAULT_KIT_NAME="custom_kit"
+DEFAULT_KIT_NAME="ED15"
 DEFAULT_BARCODE_FILE="barcode_sequences.fasta"
 DEFAULT_THREADS=8
 
@@ -121,3 +121,10 @@ echo "Check the output directory: $OUTPUT_DIR"
 # List the output files
 echo "Output files:"
 ls -la $OUTPUT_DIR/
+
+dorado demux \
+    --kit-name ED15 \
+    --barcode-arrangement barcode_arrangement.txt \
+    --barcode-sequences barcode_sequences.fasta \
+    --output-dir /Users/nartsavomur/belt/scripts/test-data/2-demultiplexed_reads \
+    /Users/nartsavomur/belt/scripts/test-data/1-fastq/ED15-Pool.fastq
