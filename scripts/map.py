@@ -12,7 +12,7 @@ from pathlib import Path
 from utils import log
 
 
-def filter_fastq(input_fastq, output_fastq, min_length=1000, min_quality=7):
+def filter_fastq(input_fastq, output_fastq, min_length=1000, min_quality=7, verbose=True):
     """
     Filter FASTQ file based on read length and quality
     
@@ -21,18 +21,22 @@ def filter_fastq(input_fastq, output_fastq, min_length=1000, min_quality=7):
         output_fastq (str): Path to output filtered FASTQ file
         min_length (int): Minimum read length
         min_quality (int): Minimum average quality score
+        verbose (bool): Whether to show detailed logging
     
     Returns:
-        bool: True if successful, False otherwise
+        dict: Dictionary with filtering statistics, or None if failed
     """
     logger = log()
-    logger.log_message(f"Filtering FASTQ file: {input_fastq}")
+    if verbose:
+        logger.log_message(f"Filtering FASTQ file: {input_fastq}")
     
     try:
         from Bio import SeqIO
         
         total_reads = 0
         filtered_reads = 0
+        length_filtered = 0
+        quality_filtered = 0
         
         with open(input_fastq, 'r') as infile, open(output_fastq, 'w') as outfile:
             for record in SeqIO.parse(infile, 'fastq'):
@@ -40,34 +44,59 @@ def filter_fastq(input_fastq, output_fastq, min_length=1000, min_quality=7):
                 
                 # Check read length
                 if len(record.seq) < min_length:
+                    length_filtered += 1
                     continue
                 
                 # Check average quality
                 if record.letter_annotations['phred_quality']:
                     avg_quality = sum(record.letter_annotations['phred_quality']) / len(record.letter_annotations['phred_quality'])
                     if avg_quality < min_quality:
+                        quality_filtered += 1
                         continue
                 
                 # Write filtered read
                 SeqIO.write(record, outfile, 'fastq')
                 filtered_reads += 1
         
-        logger.log_message(f"Filtered {filtered_reads} reads from {total_reads} total reads")
-        return True
+        stats = {
+            'total_reads': total_reads,
+            'filtered_reads': filtered_reads,
+            'length_filtered': length_filtered,
+            'quality_filtered': quality_filtered,
+            'filter_rate': filtered_reads / total_reads if total_reads > 0 else 0
+        }
+        
+        if verbose:
+            logger.log_message(f"📊 Filtering Statistics:")
+            logger.log_message(f"  Total reads: {total_reads}")
+            logger.log_message(f"  Filtered reads: {filtered_reads}")
+            logger.log_message(f"  Length filtered: {length_filtered}")
+            logger.log_message(f"  Quality filtered: {quality_filtered}")
+            logger.log_message(f"  Filter rate: {stats['filter_rate']:.2%}")
+        
+        return stats
         
     except ImportError:
-        logger.log_message("BioPython not available, skipping FASTQ filtering")
+        if verbose:
+            logger.log_message("BioPython not available, skipping FASTQ filtering")
         # Copy file without filtering
         import shutil
         shutil.copy2(input_fastq, output_fastq)
-        return True
+        # Return stats indicating no filtering was done
+        return {
+            'total_reads': 0,
+            'filtered_reads': 0,
+            'length_filtered': 0,
+            'quality_filtered': 0,
+            'filter_rate': 1.0
+        }
         
     except Exception as e:
         logger.log_message(f"Error filtering FASTQ: {e}")
-        return False
+        return None
 
 
-def run_minimap2_to_sorted(reference, fastq, output_sorted_bam, threads=4):
+def run_minimap2_to_sorted(reference, fastq, output_sorted_bam, threads=4, verbose=True):
     """
     Run minimap2 alignment and pipe directly to samtools sort
     
@@ -76,12 +105,14 @@ def run_minimap2_to_sorted(reference, fastq, output_sorted_bam, threads=4):
         fastq (str): Path to input FASTQ file
         output_sorted_bam (str): Path to output sorted BAM file
         threads (int): Number of threads to use
+        verbose (bool): Whether to show detailed logging
     
     Returns:
         bool: True if successful, False otherwise
     """
     logger = log()
-    logger.log_message(f"Running minimap2 alignment and sorting: {fastq} -> {output_sorted_bam}")
+    if verbose:
+        logger.log_message(f"Running minimap2 alignment and sorting: {fastq} -> {output_sorted_bam}")
     
     try:
         # Build minimap2 command optimized for N-base mapping
@@ -122,7 +153,8 @@ def run_minimap2_to_sorted(reference, fastq, output_sorted_bam, threads=4):
             logger.log_message(f"samtools sort failed: {samtools_stderr.decode()}")
             return False
         
-        logger.log_message("minimap2 alignment and sorting completed successfully")
+        if verbose:
+            logger.log_message("minimap2 alignment and sorting completed successfully")
         return True
         
     except Exception as e:
@@ -130,18 +162,20 @@ def run_minimap2_to_sorted(reference, fastq, output_sorted_bam, threads=4):
         return False
 
 
-def index_bam(bam_file):
+def index_bam(bam_file, verbose=True):
     """
     Index BAM file using samtools
     
     Args:
         bam_file (str): Path to BAM file to index
+        verbose (bool): Whether to show detailed logging
     
     Returns:
         bool: True if successful, False otherwise
     """
     logger = log()
-    logger.log_message(f"Indexing BAM file: {bam_file}")
+    if verbose:
+        logger.log_message(f"Indexing BAM file: {bam_file}")
     
     try:
         # Run samtools index
@@ -153,7 +187,8 @@ def index_bam(bam_file):
             logger.log_message(f"samtools index failed: {result.stderr}")
             return False
         
-        logger.log_message(f"BAM file indexed successfully")
+        if verbose:
+            logger.log_message(f"BAM file indexed successfully")
         return True
         
     except Exception as e:
@@ -601,7 +636,7 @@ def demultiplex_reads_fuzzy(bam_file, output_dir, barcodes_5p=None, barcodes_3p=
         # Index all demultiplexed BAM files
         for bam_path in stats['output_files'].values():
             if bam_path != unassigned_bam:  # Don't index unassigned file
-                index_bam(bam_path)
+                index_bam(bam_path, verbose=False)
         
         # Log statistics
         logger.log_message(f"Demultiplexing completed:")
@@ -620,7 +655,64 @@ def demultiplex_reads_fuzzy(bam_file, output_dir, barcodes_5p=None, barcodes_3p=
         return None
 
 
-def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=1000, min_quality=7, threads=4):
+def map_individual_sample_no_filter(reference, fastq, output_dir, sample_name, threads=4, verbose=False):
+    """
+    Map a single FASTQ file to reference and create BAM and index files (no filtering)
+    
+    Args:
+        reference (str): Path to reference genome
+        fastq (str): Path to input FASTQ file
+        output_dir (str): Path to output directory
+        sample_name (str): Name of the sample
+        threads (int): Number of threads to use
+        verbose (bool): Whether to show detailed logging
+    
+    Returns:
+        dict: Dictionary with output file paths, or None if failed
+    """
+    logger = log()
+    if verbose:
+        logger.log_message(f"Mapping individual sample: {sample_name}")
+    
+    # Create sample-specific output directory
+    sample_dir = os.path.join(output_dir, sample_name)
+    os.makedirs(sample_dir, exist_ok=True)
+    
+    # Generate output file paths
+    bam_file = os.path.join(sample_dir, f"{sample_name}.bam")
+    temp_bam = os.path.join(sample_dir, f"{sample_name}_temp.bam")
+    
+    # Step 1: Run minimap2 and sort in one step
+    if verbose:
+        logger.log_message(f"Step 1: Running minimap2 alignment and sorting for {sample_name}")
+    if not run_minimap2_to_sorted(reference, fastq, temp_bam, threads, verbose):
+        logger.log_message(f"minimap2 alignment and sorting failed for {sample_name}")
+        return None
+    
+    # Step 2: Move temp file to final location
+    if verbose:
+        logger.log_message(f"Step 2: Finalizing BAM file for {sample_name}")
+    os.rename(temp_bam, bam_file)
+    
+    # Step 3: Index BAM
+    if verbose:
+        logger.log_message(f"Step 3: Indexing BAM file for {sample_name}")
+    if not index_bam(bam_file, verbose):
+        logger.log_message(f"BAM indexing failed for {sample_name}")
+        return None
+    
+    # Return output file paths
+    output_files = {
+        'bam_file': bam_file,
+        'bam_index': bam_file + '.bai'
+    }
+    
+    if verbose:
+        logger.log_message(f"Mapping completed successfully for {sample_name}")
+    return output_files
+
+
+def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=1000, min_quality=7, threads=4, verbose=False):
     """
     Map a single FASTQ file to reference and create BAM and index files
     
@@ -632,12 +724,14 @@ def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=
         min_length (int): Minimum read length for filtering
         min_quality (int): Minimum average quality score for filtering
         threads (int): Number of threads to use
+        verbose (bool): Whether to show detailed logging
     
     Returns:
         dict: Dictionary with output file paths, or None if failed
     """
     logger = log()
-    logger.log_message(f"Mapping individual sample: {sample_name}")
+    if verbose:
+        logger.log_message(f"Mapping individual sample: {sample_name}")
     
     # Create sample-specific output directory
     sample_dir = os.path.join(output_dir, sample_name)
@@ -649,24 +743,28 @@ def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=
     temp_bam = os.path.join(sample_dir, f"{sample_name}_temp.bam")
     
     # Step 1: Filter FASTQ
-    logger.log_message(f"Step 1: Filtering FASTQ file for {sample_name}")
-    if not filter_fastq(fastq, filtered_fastq, min_length, min_quality):
+    if verbose:
+        logger.log_message(f"Step 1: Filtering FASTQ file for {sample_name}")
+    if not filter_fastq(fastq, filtered_fastq, min_length, min_quality, verbose):
         logger.log_message(f"FASTQ filtering failed for {sample_name}")
         return None
     
     # Step 2: Run minimap2 and sort in one step
-    logger.log_message(f"Step 2: Running minimap2 alignment and sorting for {sample_name}")
-    if not run_minimap2_to_sorted(reference, filtered_fastq, temp_bam, threads):
+    if verbose:
+        logger.log_message(f"Step 2: Running minimap2 alignment and sorting for {sample_name}")
+    if not run_minimap2_to_sorted(reference, filtered_fastq, temp_bam, threads, verbose):
         logger.log_message(f"minimap2 alignment and sorting failed for {sample_name}")
         return None
     
     # Step 3: Move temp file to final location
-    logger.log_message(f"Step 3: Finalizing BAM file for {sample_name}")
+    if verbose:
+        logger.log_message(f"Step 3: Finalizing BAM file for {sample_name}")
     os.rename(temp_bam, bam_file)
     
     # Step 4: Index BAM
-    logger.log_message(f"Step 4: Indexing BAM file for {sample_name}")
-    if not index_bam(bam_file):
+    if verbose:
+        logger.log_message(f"Step 4: Indexing BAM file for {sample_name}")
+    if not index_bam(bam_file, verbose):
         logger.log_message(f"BAM indexing failed for {sample_name}")
         return None
     
@@ -677,7 +775,8 @@ def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=
         'bam_index': bam_file + '.bai'
     }
     
-    logger.log_message(f"Mapping completed successfully for {sample_name}")
+    if verbose:
+        logger.log_message(f"Mapping completed successfully for {sample_name}")
     return output_files
 
 
@@ -721,19 +820,27 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
         logger.log_message("No sample sheet provided, performing simple mapping")
         sample_name = Path(fastq).stem
         return map_individual_sample(reference, fastq, output_dir, sample_name, 
-                                   min_length, min_quality, threads)
+                                   min_length, min_quality, threads, verbose=True)
     
-    # Load barcodes from sample sheet
-    logger.log_message("Step 1: Loading barcodes from sample sheet")
+    # Step 1: Filter FASTQ reads first
+    logger.log_message("Step 1: Filtering FASTQ reads")
+    filtered_fastq = os.path.join(output_dir, "filtered_input.fastq")
+    filter_stats = filter_fastq(fastq, filtered_fastq, min_length, min_quality, verbose=True)
+    if not filter_stats:
+        logger.log_message("FASTQ filtering failed")
+        return None
+    
+    # Step 2: Load barcodes from sample sheet
+    logger.log_message("Step 2: Loading barcodes from sample sheet")
     barcodes = load_barcodes_from_csv(sample_sheet)
     if not barcodes:
         logger.log_message("Failed to load barcodes from sample sheet")
         return None
     
-    # Demultiplex FASTQ reads
-    logger.log_message("Step 2: Demultiplexing FASTQ reads")
+    # Step 3: Demultiplex filtered FASTQ reads
+    logger.log_message("Step 3: Demultiplexing filtered FASTQ reads")
     demux_stats = demultiplex_fastq_reads(
-        fastq, output_dir,
+        filtered_fastq, output_dir,
         barcodes_1=barcodes['5p'] if barcodes['5p'] else None,
         barcodes_2=barcodes['3p'] if barcodes['3p'] else None,
         sample_names=barcodes['samples'] if barcodes['samples'] else None,
@@ -745,8 +852,8 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
         logger.log_message("FASTQ demultiplexing failed")
         return None
     
-    # Map each demultiplexed FASTQ file
-    logger.log_message("Step 3: Mapping demultiplexed samples")
+    # Step 4: Map each demultiplexed FASTQ file
+    logger.log_message("Step 4: Mapping demultiplexed samples")
     sample_results = {}
     
     for sample_name, fastq_path in demux_stats['output_files'].items():
@@ -754,9 +861,9 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
             continue
             
         logger.log_message(f"Mapping sample: {sample_name}")
-        result = map_individual_sample(
+        result = map_individual_sample_no_filter(
             reference, fastq_path, output_dir, sample_name,
-            min_length, min_quality, threads
+            threads, verbose=False
         )
         
         if result:
@@ -769,15 +876,16 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
     unassigned_fastq = demux_stats['output_files'].get('unassigned')
     if unassigned_fastq and os.path.exists(unassigned_fastq) and os.path.getsize(unassigned_fastq) > 0:
         logger.log_message("Mapping unassigned reads")
-        result = map_individual_sample(
+        result = map_individual_sample_no_filter(
             reference, unassigned_fastq, output_dir, "unassigned",
-            min_length, min_quality, threads
+            threads, verbose=False
         )
         if result:
             sample_results['unassigned'] = result
     
     # Return comprehensive results
     output_files = {
+        'filtering_stats': filter_stats,
         'demultiplexing_stats': demux_stats,
         'sample_results': sample_results,
         'total_samples': len(sample_results)

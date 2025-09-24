@@ -112,14 +112,30 @@ def map(reference, fastq, output_dir, min_length, min_quality, threads, sample_s
     if result:
         print("✅ Mapping pipeline completed successfully!")
         
+        # Show filtering statistics if available
+        if 'filtering_stats' in result:
+            filter_stats = result['filtering_stats']
+            print(f"\n📊 Filtering Statistics:")
+            print(f"  Original reads: {filter_stats['total_reads']}")
+            print(f"  Filtered reads: {filter_stats['filtered_reads']}")
+            print(f"  Length filtered: {filter_stats['length_filtered']}")
+            print(f"  Quality filtered: {filter_stats['quality_filtered']}")
+            print(f"  Filter rate: {filter_stats['filter_rate']:.2%}")
+        
         # Show demultiplexing statistics if available
         if 'demultiplexing_stats' in result:
             stats = result['demultiplexing_stats']
+            # Calculate corrected statistics
+            original_total = result['filtering_stats']['total_reads'] if 'filtering_stats' in result else stats['total_reads']
+            filtered_total = result['filtering_stats']['filtered_reads'] if 'filtering_stats' in result else stats['total_reads']
+            
             print(f"\n📊 Demultiplexing Statistics:")
-            print(f"  Total reads: {stats['total_reads']}")
+            print(f"  Original reads: {original_total}")
+            print(f"  Filtered reads: {filtered_total}")
             print(f"  Demultiplexed reads: {stats['demultiplexed_reads']}")
             print(f"  Unassigned reads: {stats['unassigned_reads']}")
-            print(f"  Demultiplexing rate: {stats['demultiplexed_reads']/stats['total_reads']:.2%}")
+            print(f"  Demultiplexing rate (of filtered): {stats['demultiplexed_reads']/stats['total_reads']:.2%}")
+            print(f"  Overall success rate: {stats['demultiplexed_reads']/original_total:.2%}")
             print(f"\n📁 Demultiplexed files:")
             for combo, count in stats['barcode_combinations'].items():
                 print(f"  {combo}: {count} reads")
