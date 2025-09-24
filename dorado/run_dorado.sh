@@ -107,13 +107,12 @@ if [ ! -f "$BARCODE_ARRANGEMENT_FILE" ]; then
     exit 1
 fi
 
-# Run Dorado with custom barcodes
-dorado basecaller \
+# Run Dorado demultiplexing
+dorado demux \
     --kit-name $KIT_NAME \
     --barcode-arrangement $BARCODE_ARRANGEMENT_FILE \
     --barcode-sequences $BARCODE_FILE \
     --output-dir $OUTPUT_DIR \
-    fast \
     $INPUT_FASTQ
 
 echo "Dorado demultiplexing completed!"
