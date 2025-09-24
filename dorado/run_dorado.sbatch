@@ -3,7 +3,7 @@
 #SBATCH --output=dorado_demux_%j.out
 #SBATCH --error=dorado_demux_%j.err
 #SBATCH --time=24:00:00
-#SBATCH --partition=normal
+#SBATCH --partition=compute
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
@@ -71,10 +71,11 @@ fi
 
 # Run the dorado demultiplexing script
 echo "Starting Dorado demultiplexing..."
-./run_dorado.sh $INPUT_FASTQ $OUTPUT_DIR $KIT_NAME $BARCODE_FILE $THREADS
+$SLURM_SUBMIT_DIR/run_dorado.sh $INPUT_FASTQ $OUTPUT_DIR $KIT_NAME $BARCODE_FILE $THREADS
+DORADO_EXIT_CODE=$?
 
 # Check if the job completed successfully
-if [ $? -eq 0 ]; then
+if [ $DORADO_EXIT_CODE -eq 0 ]; then
     echo "=========================================="
     echo "Job completed successfully!"
     echo "End time: $(date)"
@@ -84,7 +85,7 @@ if [ $? -eq 0 ]; then
     echo "=========================================="
 else
     echo "=========================================="
-    echo "Job failed with exit code $?"
+    echo "Job failed with exit code $DORADO_EXIT_CODE"
     echo "End time: $(date)"
     echo "Check the error log for details"
     echo "=========================================="
