@@ -92,10 +92,8 @@ def extract(reference, alignment, min_read_length, motif, output):
 @click.option('--min-length', default=1000, type=int, help="Minimum read length for filtering")
 @click.option('--min-quality', default=7, type=int, help="Minimum average quality score for filtering")
 @click.option('--threads', default=4, type=int, help="Number of threads to use")
-@click.option('--sample-sheet', help="CSV file with barcode information for demultiplexing (optional)")
-@click.option('--search-window', default=200, type=int, help="Number of bases to search from each end for barcodes")
-@click.option('--mismatch-threshold', default=2, type=int, help="Maximum mismatches allowed for barcode matching")
-def map(reference, fastq, output_dir, min_length, min_quality, threads, sample_sheet, search_window, mismatch_threshold):
+@click.option('--sample-sheet', help="YAML file with motif information for demultiplexing (optional)")
+def map(reference, fastq, output_dir, min_length, min_quality, threads, sample_sheet):
     """Map FASTQ reads to reference using minimap2 with filtering, sorting, indexing, and optional demultiplexing"""
     result = map_pipeline(
         reference=reference,
@@ -104,9 +102,7 @@ def map(reference, fastq, output_dir, min_length, min_quality, threads, sample_s
         min_length=min_length,
         min_quality=min_quality,
         threads=threads,
-        sample_sheet=sample_sheet,
-        search_window=search_window,
-        mismatch_threshold=mismatch_threshold
+        sample_sheet=sample_sheet
     )
     
     if result:
@@ -137,8 +133,10 @@ def map(reference, fastq, output_dir, min_length, min_quality, threads, sample_s
             print(f"  Demultiplexing rate (of filtered): {stats['demultiplexed_reads']/stats['total_reads']:.2%}")
             print(f"  Overall success rate: {stats['demultiplexed_reads']/original_total:.2%}")
             print(f"\n📁 Demultiplexed files:")
-            for combo, count in stats['barcode_combinations'].items():
-                print(f"  {combo}: {count} reads")
+            # Use the new sample_counts format
+            sample_counts = stats.get('sample_counts', {})
+            for sample, count in sample_counts.items():
+                print(f"  {sample}: {count} reads")
             print(f"  unassigned: {stats['unassigned_reads']} reads")
     else:
         print("❌ Mapping pipeline failed!")

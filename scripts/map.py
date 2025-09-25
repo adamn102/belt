@@ -233,6 +233,346 @@ def load_barcodes_from_csv(csv_file):
         logger.log_message(f"Error loading barcodes from CSV: {e}")
         return None
 
+
+def load_sample_sheet_yaml(yaml_file):
+    """
+    Load sample sheet configuration from YAML file
+    
+    Returns:
+        dict: Dictionary with sample sheet configuration
+    """
+    import yaml
+    
+    try:
+        with open(yaml_file, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        logger = log()
+        logger.log_message(f"Loaded sample sheet configuration from {yaml_file}")
+        logger.log_message(f"Found {len(config.get('samples', []))} samples")
+        
+        return config
+    except Exception as e:
+        logger = log()
+        logger.log_message(f"Error loading YAML sample sheet: {e}")
+        return None
+
+
+def find_motif_in_sequence(sequence, motif, max_mismatches, search_window=None):
+    """
+    Find a motif in a sequence using fast fuzzy matching (substitutions only)
+    
+    Args:
+        sequence (str): DNA sequence to search in
+        motif (str): Motif sequence to find
+        max_mismatches (int): Maximum allowed mismatches
+        search_window (int): Optional window size to limit search
+        
+    Returns:
+        dict: {'found': bool, 'position': int, 'extracted': str, 'mismatches': int}
+    """
+    def count_mismatches(s1, s2):
+        """Count mismatches between equal-length sequences"""
+        if len(s1) != len(s2):
+            return float('inf')
+        return sum(1 for a, b in zip(s1, s2) if a != b)
+    
+    # Determine search region
+    search_seq = sequence
+    search_offset = 0
+    if search_window and len(sequence) > search_window:
+        search_seq = sequence[:search_window]
+    
+    motif_len = len(motif)
+    best_match = {
+        'found': False,
+        'position': -1,
+        'extracted': None,
+        'mismatches': float('inf')
+    }
+    
+    # Fast fuzzy search - only try exact length matches
+    for i in range(len(search_seq) - motif_len + 1):
+        subsequence = search_seq[i:i+motif_len]
+        mismatches = count_mismatches(subsequence, motif)
+        
+        if mismatches <= max_mismatches and mismatches < best_match['mismatches']:
+            best_match = {
+                'found': True,
+                'position': search_offset + i,
+                'extracted': subsequence,
+                'mismatches': mismatches
+            }
+            
+            # Early termination if perfect match found
+            if mismatches == 0:
+                break
+    
+    return best_match
+
+
+def reverse_complement(seq):
+    """Get reverse complement of DNA sequence"""
+    complement = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'N': 'N'}
+    return ''.join(complement.get(base, base) for base in seq[::-1])
+
+
+def match_motifs_to_sample(motif_results, samples, motifs_config):
+    """
+    Match motif detection results to a sample
+    
+    Args:
+        motif_results (dict): Results from motif detection
+        samples (list): List of sample configurations
+        motifs_config (dict): Motif configurations
+        
+    Returns:
+        str or None: Sample name if match found, None otherwise
+    """
+    for sample in samples:
+        sample_name = sample['name']
+        
+        # Get required motifs for this sample
+        forward_motifs_required = sample.get('forward_motifs', [])
+        reverse_motifs_required = sample.get('reverse_motifs', [])
+        
+        # Skip samples that require no motifs
+        if not forward_motifs_required and not reverse_motifs_required:
+            continue
+        
+        # Check if all required forward motifs are found
+        forward_match = True
+        if forward_motifs_required:
+            for motif_name in forward_motifs_required:
+                key = f"forward_{motif_name}"
+                if key not in motif_results or not motif_results[key]['found']:
+                    forward_match = False
+                    break
+        
+        # Check if all required reverse motifs are found
+        reverse_match = True
+        if reverse_motifs_required:
+            for motif_name in reverse_motifs_required:
+                key = f"reverse_{motif_name}"
+                if key not in motif_results or not motif_results[key]['found']:
+                    reverse_match = False
+                    break
+        
+        # If both forward and reverse requirements are met, return sample
+        if forward_match and reverse_match:
+            return sample_name
+    
+    return None
+
+
+def demultiplex_fastq_motif_based(input_fastq, output_dir, sample_sheet_config):
+    """
+    Demultiplex FASTQ reads using motif-based detection
+    
+    Args:
+        input_fastq (str): Path to input FASTQ file
+        output_dir (str): Path to output directory
+        sample_sheet_config (dict): Sample sheet configuration from YAML
+        
+    Returns:
+        dict: Demultiplexing statistics and output files
+    """
+    logger = log()
+    logger.log_message(f"Demultiplexing FASTQ reads from {input_fastq} using motif-based detection")
+    
+    try:
+        from Bio import SeqIO
+        
+        # Create demultiplexed output directory
+        demux_dir = os.path.join(output_dir, "demultiplexed_fastq")
+        os.makedirs(demux_dir, exist_ok=True)
+        
+        # Initialize statistics
+        stats = {
+            'total_reads': 0,
+            'demultiplexed_reads': 0,
+            'unassigned_reads': 0,
+            'sample_counts': {},
+            'output_files': {}
+        }
+        
+        # Create CSV file for motif extraction results
+        csv_output_path = os.path.join(demux_dir, "motif_extraction_results.csv")
+        csv_file = open(csv_output_path, 'w')
+        
+        # Build CSV header
+        header_parts = ["read_name", "sequence_length", "orientation"]
+        
+        # Add columns for each motif
+        motifs_config = sample_sheet_config.get('motifs', {})
+        for direction in ['forward', 'reverse']:
+            for motif_name in motifs_config.get(direction, {}):
+                prefix = f"{direction}_{motif_name}"
+                header_parts.extend([
+                    f"{prefix}_found",
+                    f"{prefix}_sequence", 
+                    f"{prefix}_extracted",
+                    f"{prefix}_mismatches",
+                    f"{prefix}_position"
+                ])
+        
+        header_parts.extend(["assigned_sample", "assignment_reason"])
+        csv_file.write(','.join(header_parts) + '\n')
+        stats['output_files']['motif_csv'] = csv_output_path
+        
+        # Create output FASTQ files for each sample
+        fastq_files = {}
+        samples = sample_sheet_config.get('samples', [])
+        for sample in samples:
+            sample_name = sample['name']
+            fastq_path = os.path.join(demux_dir, f"{sample_name}.fastq")
+            fastq_files[sample_name] = open(fastq_path, 'w')
+            stats['sample_counts'][sample_name] = 0
+            stats['output_files'][sample_name] = fastq_path
+        
+        # Unassigned reads file
+        unassigned_fastq = os.path.join(demux_dir, "unassigned.fastq")
+        unassigned_file = open(unassigned_fastq, 'w')
+        stats['output_files']['unassigned'] = unassigned_fastq
+        
+        # Get search window from config
+        search_window = sample_sheet_config.get('parameters', {}).get('search_window', 200)
+        
+        # Process each read
+        with open(input_fastq, 'r') as infile:
+            for record in SeqIO.parse(infile, 'fastq'):
+                stats['total_reads'] += 1
+                sequence = str(record.seq)
+                assigned = False
+                assigned_sample = None
+                assignment_reason = None
+                orientation = "forward"
+                
+                # Try forward orientation first
+                motif_results = {}
+                
+                # Check forward motifs
+                for motif_name, motif_config in motifs_config.get('forward', {}).items():
+                    result = find_motif_in_sequence(
+                        sequence, 
+                        motif_config['sequence'],
+                        motif_config['max_mismatches'],
+                        search_window
+                    )
+                    motif_results[f"forward_{motif_name}"] = result
+                
+                # Check reverse motifs (search from end)
+                for motif_name, motif_config in motifs_config.get('reverse', {}).items():
+                    # Search from the end of the sequence
+                    search_start = max(0, len(sequence) - search_window)
+                    search_seq = sequence[search_start:]
+                    result = find_motif_in_sequence(
+                        search_seq,
+                        motif_config['sequence'],
+                        motif_config['max_mismatches'],
+                        None  # Don't limit search window again
+                    )
+                    # Adjust position for reverse search
+                    if result['position'] != -1:
+                        result['position'] = search_start + result['position']
+                    motif_results[f"reverse_{motif_name}"] = result
+                
+                # Try to match to samples
+                sample_match = match_motifs_to_sample(motif_results, samples, motifs_config)
+                
+                # If no match, try reverse complement
+                if not sample_match:
+                    orientation = "reverse_complement"
+                    rc_sequence = reverse_complement(sequence)
+                    motif_results = {}
+                    
+                    # Check forward motifs on reverse complement
+                    for motif_name, motif_config in motifs_config.get('forward', {}).items():
+                        result = find_motif_in_sequence(
+                            rc_sequence, 
+                            motif_config['sequence'],
+                            motif_config['max_mismatches'],
+                            search_window
+                        )
+                        motif_results[f"forward_{motif_name}"] = result
+                    
+                    # Check reverse motifs on reverse complement (search from end)
+                    for motif_name, motif_config in motifs_config.get('reverse', {}).items():
+                        search_start = max(0, len(rc_sequence) - search_window)
+                        search_seq = rc_sequence[search_start:]
+                        result = find_motif_in_sequence(
+                            search_seq,
+                            motif_config['sequence'],
+                            motif_config['max_mismatches'],
+                            None  # Don't limit search window again
+                        )
+                        if result['position'] != -1:
+                            result['position'] = search_start + result['position']
+                        motif_results[f"reverse_{motif_name}"] = result
+                    
+                    sample_match = match_motifs_to_sample(motif_results, samples, motifs_config)
+                
+                # Assign to sample if match found
+                if sample_match:
+                    assigned_sample = sample_match
+                    assignment_reason = f"motif_match_{orientation}"
+                    SeqIO.write(record, fastq_files[sample_match], 'fastq')
+                    stats['sample_counts'][sample_match] += 1
+                    stats['demultiplexed_reads'] += 1
+                    assigned = True
+                else:
+                    # Write to unassigned file
+                    SeqIO.write(record, unassigned_file, 'fastq')
+                    stats['unassigned_reads'] += 1
+                    assigned_sample = "unassigned"
+                    assignment_reason = "no_motif_match"
+                
+                # Write motif extraction results to CSV
+                csv_row = [record.id, len(sequence), orientation]
+                
+                # Add motif results to CSV
+                for direction in ['forward', 'reverse']:
+                    for motif_name in motifs_config.get(direction, {}):
+                        key = f"{direction}_{motif_name}"
+                        result = motif_results.get(key, {
+                            'found': False, 'position': -1, 'extracted': None, 'mismatches': float('inf')
+                        })
+                        
+                        motif_seq = motifs_config[direction][motif_name]['sequence']
+                        csv_row.extend([
+                            'Yes' if result['found'] else 'No',
+                            motif_seq,
+                            result['extracted'] or 'None',
+                            result['mismatches'] if result['mismatches'] != float('inf') else 'None',
+                            result['position'] if result['position'] != -1 else 'None'
+                        ])
+                
+                csv_row.extend([assigned_sample or 'None', assignment_reason or 'None'])
+                csv_file.write(','.join(map(str, csv_row)) + '\n')
+        
+        # Close all files
+        for file_handle in fastq_files.values():
+            file_handle.close()
+        unassigned_file.close()
+        csv_file.close()
+        
+        # Log statistics
+        logger.log_message(f"Motif-based demultiplexing completed:")
+        logger.log_message(f"  Total reads: {stats['total_reads']}")
+        logger.log_message(f"  Demultiplexed reads: {stats['demultiplexed_reads']}")
+        logger.log_message(f"  Unassigned reads: {stats['unassigned_reads']}")
+        logger.log_message(f"  Demultiplexing rate: {stats['demultiplexed_reads']/stats['total_reads']*100:.1f}%")
+        
+        for sample, count in stats['sample_counts'].items():
+            logger.log_message(f"  {sample}: {count} reads")
+        
+        return stats
+        
+    except Exception as e:
+        logger.log_message(f"Error during motif-based demultiplexing: {str(e)}")
+        return None
+
+
 def demultiplex_fastq_reads(input_fastq, output_dir, barcodes_1=None, barcodes_2=None, 
                            sample_names=None, search_window=200, mismatch_threshold=2):
     """
@@ -819,7 +1159,7 @@ def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=
 
 
 def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, threads=4,
-                sample_sheet=None, search_window=200, mismatch_threshold=2):
+                sample_sheet=None):
     """
     Complete mapping pipeline with FASTQ demultiplexing support
     
@@ -868,23 +1208,16 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
         logger.log_message("FASTQ filtering failed")
         return None
     
-    # Step 2: Load barcodes from sample sheet
-    logger.log_message("Step 2: Loading barcodes from sample sheet")
-    barcodes = load_barcodes_from_csv(sample_sheet)
-    if not barcodes:
-        logger.log_message("Failed to load barcodes from sample sheet")
+    # Step 2: Load YAML sample sheet configuration
+    logger.log_message("Step 2: Loading YAML sample sheet configuration")
+    config = load_sample_sheet_yaml(sample_sheet)
+    if not config:
+        logger.log_message("Failed to load YAML sample sheet")
         return None
     
-    # Step 3: Demultiplex filtered FASTQ reads
-    logger.log_message("Step 3: Demultiplexing filtered FASTQ reads")
-    demux_stats = demultiplex_fastq_reads(
-        filtered_fastq, output_dir,
-        barcodes_1=barcodes['5p'] if barcodes['5p'] else None,
-        barcodes_2=barcodes['3p'] if barcodes['3p'] else None,
-        sample_names=barcodes['samples'] if barcodes['samples'] else None,
-        search_window=search_window,
-        mismatch_threshold=mismatch_threshold
-    )
+    # Step 3: Demultiplex using motif-based system
+    logger.log_message("Step 3: Demultiplexing filtered FASTQ reads using motif-based detection")
+    demux_stats = demultiplex_fastq_motif_based(filtered_fastq, output_dir, config)
     
     if not demux_stats:
         logger.log_message("FASTQ demultiplexing failed")
@@ -895,7 +1228,7 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
     sample_results = {}
     
     for sample_name, fastq_path in demux_stats['output_files'].items():
-        if sample_name == 'unassigned':
+        if sample_name in ['unassigned', 'motif_csv']:
             continue
             
         logger.log_message(f"Mapping sample: {sample_name}")
