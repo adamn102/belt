@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --partition=compute
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:h200_1g.35gb:1 
 
 # Simple Dorado Basecalling SLURM Script with Barcoding
 # Usage: sbatch dorado_basecall.sbatch <input_dir> <output_dir> [model] [kit_name]
@@ -24,7 +24,7 @@ fi
 
 INPUT_DIR=$1
 OUTPUT_DIR=$2
-MODEL=${3:-"sup"}  # Default to sup model if not specified
+MODEL=${3:-"/project/balazslab/models/dorado/sup"}  # Default to local model path if not specified
 KIT_NAME=${4:-"SQK-NBD114-24"}  # Default to SQK-NBD114-24 kit
 
 # Create output directory
@@ -34,6 +34,14 @@ mkdir -p $OUTPUT_DIR
 module load dorado
 # module load minimap2
 # module load samtools
+
+# Download model if it doesn't exist
+MODEL_DIR="/project/balazslab/models/dorado"
+if [ ! -d "$MODEL_DIR/sup" ]; then
+    echo "Downloading Dorado model..."
+    mkdir -p $MODEL_DIR
+    dorado download sup@v4.2.0 --directory $MODEL_DIR
+fi
 
 # Check if Dorado is available
 if ! command -v dorado &> /dev/null; then
@@ -74,6 +82,7 @@ dorado basecaller \
     --recursive \
     --output-dir $OUTPUT_DIR \
     --device cuda:all \
+    --kit-name $KIT_NAME \
     --emit-fastq
 
 # Check if basecalling was successful
