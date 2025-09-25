@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --partition=compute
-#SBATCH --gres=gpu:h200_1g.35gb:1 
+#SBATCH --gres=gpu:h200_3g.71gb:1 
 
 # Simple Dorado Basecalling SLURM Script with Barcoding
 # Usage: sbatch dorado_basecall.sbatch <input_dir> <output_dir> [model] [kit_name]
@@ -35,13 +35,8 @@ module load dorado
 # module load minimap2
 # module load samtools
 
-# Download model if it doesn't exist
+# Use default model (no download)
 MODEL_DIR="/project/balazslab/models/dorado"
-if [ ! -d "$MODEL_DIR/sup" ]; then
-    echo "Downloading Dorado model..."
-    mkdir -p $MODEL_DIR
-    dorado download sup@v4.2.0 --directory $MODEL_DIR
-fi
 
 # Check if Dorado is available
 if ! command -v dorado &> /dev/null; then
