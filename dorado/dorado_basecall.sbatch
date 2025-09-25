@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=32G
 #SBATCH --partition=compute
-#SBATCH --gres=gpu:h200_1g.35gb:1
+#SBATCH --gres=gpu:2
 
 # Simple Dorado Basecalling SLURM Script with Barcoding
 # Usage: sbatch dorado_basecall.sbatch <input_dir> <output_dir> [model] [kit_name]
@@ -73,8 +73,8 @@ dorado basecaller \
     $INPUT_DIR \
     --recursive \
     --output-dir $OUTPUT_DIR \
-    --device cuda \
-    --kit-name $KIT_NAME
+    --device cuda:all \
+    --emit-fastq
 
 # Check if basecalling was successful
 if [ $? -eq 0 ]; then
