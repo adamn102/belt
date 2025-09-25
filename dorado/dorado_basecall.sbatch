@@ -24,7 +24,7 @@ fi
 
 INPUT_DIR=$1
 OUTPUT_DIR=$2
-MODEL=${3:-"/project/balazslab/models/dorado/sup"}  # Default to local model path if not specified
+MODEL=${3:-"sup"}  # Default to sup model (auto-download)
 KIT_NAME=${4:-"SQK-NBD114-24"}  # Default to SQK-NBD114-24 kit
 
 # Create output directory
@@ -35,8 +35,6 @@ module load dorado
 # module load minimap2
 # module load samtools
 
-# Use default model (no download)
-MODEL_DIR="/project/balazslab/models/dorado"
 
 # Check if Dorado is available
 if ! command -v dorado &> /dev/null; then
