@@ -1052,13 +1052,9 @@ def map_individual_sample_no_filter(reference, fastq, output_dir, sample_name, t
     if verbose:
         logger.log_message(f"Mapping individual sample: {sample_name}")
     
-    # Create sample-specific output directory
-    sample_dir = os.path.join(output_dir, sample_name)
-    os.makedirs(sample_dir, exist_ok=True)
-    
-    # Generate output file paths
-    bam_file = os.path.join(sample_dir, f"{sample_name}.bam")
-    temp_bam = os.path.join(sample_dir, f"{sample_name}_temp.bam")
+    # Generate output file paths directly in output directory
+    bam_file = os.path.join(output_dir, f"{sample_name}.bam")
+    temp_bam = os.path.join(output_dir, f"{sample_name}_temp.bam")
     
     # Step 1: Run minimap2 and sort in one step
     if verbose:
@@ -1111,14 +1107,10 @@ def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=
     if verbose:
         logger.log_message(f"Mapping individual sample: {sample_name}")
     
-    # Create sample-specific output directory
-    sample_dir = os.path.join(output_dir, sample_name)
-    os.makedirs(sample_dir, exist_ok=True)
-    
-    # Generate output file paths
-    filtered_fastq = os.path.join(sample_dir, f"{sample_name}_filtered.fastq")
-    bam_file = os.path.join(sample_dir, f"{sample_name}.bam")
-    temp_bam = os.path.join(sample_dir, f"{sample_name}_temp.bam")
+    # Generate output file paths directly in output directory
+    filtered_fastq = os.path.join(output_dir, f"{sample_name}_filtered.fastq")
+    bam_file = os.path.join(output_dir, f"{sample_name}.bam")
+    temp_bam = os.path.join(output_dir, f"{sample_name}_temp.bam")
     
     # Step 1: Filter FASTQ
     if verbose:

@@ -81,3 +81,4 @@ samples:
   - name: "ED15-[M184V-C]"
     forward_motifs: ["barcode1_GCCGAACATAGTGATATCAG"]
     reverse_motifs: ["barcode2_CTGTCGCGTGATGAGAAGCC"]
+
