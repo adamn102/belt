@@ -1,21 +1,42 @@
-# BELT Sample Sheet Configuration - Converted from ED15-SampleSheet.csv
+# BELT Sample Sheet Configuration - Updated from ED15-SampleSheet.csv
 # Motif-based demultiplexing configuration with Levenshtein distance for indel handling
 
 # Global demultiplexing parameters
 parameters:
   search_window: 200  # Number of bases to search from each end
 
-# Barcode motifs configuration - treating old barcodes as motifs
+# Barcode motifs configuration - all barcodes from the CSV
 motifs:
   forward:
+    barcode1_AAAGCACAGTCCGTAGGTTT:
+      sequence: "AAAGCACAGTCCGTAGGTTT"
+      max_mismatches: 5
+    barcode1_AAGCAGTGACAGGTGATGAA:
+      sequence: "AAGCAGTGACAGGTGATGAA"
+      max_mismatches: 5
+    barcode1_ACCTCTTACATCTCTAGATA:
+      sequence: "ACCTCTTACATCTCTAGATA"
+      max_mismatches: 5
+    barcode1_ATATAATCGGACTAGGTAGG:
+      sequence: "ATATAATCGGACTAGGTAGG"
+      max_mismatches: 5
     barcode1_CCTACGTTCTCGTTGCCGTT:
       sequence: "CCTACGTTCTCGTTGCCGTT"
       max_mismatches: 5
     barcode1_GAGGTTGCAATCGTACTCCC:
       sequence: "GAGGTTGCAATCGTACTCCC"
       max_mismatches: 5
-    barcode1_GCCGAACATAGTGATATCAG:
-      sequence: "GCCGAACATAGTGATATCAG"
+    barcode1_GGACGTAGCATGACCTCTTC:
+      sequence: "GGACGTAGCATGACCTCTTC"
+      max_mismatches: 5
+    barcode1_GGGTATTTCGCACGCATCAT:
+      sequence: "GGGTATTTCGCACGCATCAT"
+      max_mismatches: 5
+    barcode1_GGTGACGACGTGTTGAAAGC:
+      sequence: "GGTGACGACGTGTTGAAAGC"
+      max_mismatches: 5
+    barcode1_TACCTAAGTCAACGTTGTAG:
+      sequence: "TACCTAAGTCAACGTTGTAG"
       max_mismatches: 5
   
   reverse:
@@ -31,54 +52,241 @@ motifs:
     barcode2_CTGTCGCGTGATGAGAAGCC:
       sequence: "CTGTCGCGTGATGAGAAGCC"
       max_mismatches: 5
+    barcode2_TACAGCGTACACACGTTAAG:
+      sequence: "TACAGCGTACACACGTTAAG"
+      max_mismatches: 5
+    barcode2_ATTGAATACACAATGAACCG:
+      sequence: "ATTGAATACACAATGAACCG"
+      max_mismatches: 5
+    barcode2_AACAAACGCGTGCGTACGAT:
+      sequence: "AACAAACGCGTGCGTACGAT"
+      max_mismatches: 5
+    barcode2_TGAGATACGTTGAGAGTATT:
+      sequence: "TGAGATACGTTGAGAGTATT"
+      max_mismatches: 5
 
-# Sample definitions - each sample requires specific barcode combinations
+# Sample definitions - all samples from the CSV
 samples:
-  - name: "ED15-[WT-A]"
+  # ED14 samples
+  - name: "ED14-[200-A]"
+    forward_motifs: ["barcode1_AAAGCACAGTCCGTAGGTTT"]
+    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "ED14-[200-B]"
+    forward_motifs: ["barcode1_AAGCAGTGACAGGTGATGAA"]
+    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "ED14-[200-C]"
+    forward_motifs: ["barcode1_ACCTCTTACATCTCTAGATA"]
+    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "ED14-[100-A]"
+    forward_motifs: ["barcode1_ATATAATCGGACTAGGTAGG"]
+    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "ED14-[100-B]"
     forward_motifs: ["barcode1_CCTACGTTCTCGTTGCCGTT"]
     reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "ED14-[100-C]"
+    forward_motifs: ["barcode1_GAGGTTGCAATCGTACTCCC"]
+    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "ED14-[50-A]"
+    forward_motifs: ["barcode1_AAAGCACAGTCCGTAGGTTT"]
+    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "ED14-[50-B]"
+    forward_motifs: ["barcode1_AAGCAGTGACAGGTGATGAA"]
+    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    
+  - name: "ED14-[50-C]"
+    forward_motifs: ["barcode1_ACCTCTTACATCTCTAGATA"]
+    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    
+  - name: "ED14-[25-A]"
+    forward_motifs: ["barcode1_ATATAATCGGACTAGGTAGG"]
+    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    
+  - name: "ED14-[25-B]"
+    forward_motifs: ["barcode1_CCTACGTTCTCGTTGCCGTT"]
+    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    
+  - name: "ED14-[25-C]"
+    forward_motifs: ["barcode1_GAGGTTGCAATCGTACTCCC"]
+    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    
+  - name: "ED14-[12.5-A]"
+    forward_motifs: ["barcode1_AAAGCACAGTCCGTAGGTTT"]
+    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    
+  - name: "ED14-[12.5-B]"
+    forward_motifs: ["barcode1_AAGCAGTGACAGGTGATGAA"]
+    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    
+  - name: "ED14-[12.5-C]"
+    forward_motifs: ["barcode1_ACCTCTTACATCTCTAGATA"]
+    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    
+  - name: "ED14-[0-A]"
+    forward_motifs: ["barcode1_ATATAATCGGACTAGGTAGG"]
+    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    
+  - name: "ED14-[0-B]"
+    forward_motifs: ["barcode1_CCTACGTTCTCGTTGCCGTT"]
+    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    
+  - name: "ED14-[0-C]"
+    forward_motifs: ["barcode1_GAGGTTGCAATCGTACTCCC"]
+    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    
+  # ED15 samples
+  - name: "ED15-[WT-A]"
+    forward_motifs: ["barcode1_CCTACGTTCTCGTTGCCGTT"]
+    reverse_motifs: ["barcode2_TACAGCGTACACACGTTAAG"]
     
   - name: "ED15-[WT-B]"
     forward_motifs: ["barcode1_GAGGTTGCAATCGTACTCCC"]
-    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    reverse_motifs: ["barcode2_TACAGCGTACACACGTTAAG"]
     
   - name: "ED15-[WT-C]"
     forward_motifs: ["barcode1_GCCGAACATAGTGATATCAG"]
-    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    reverse_motifs: ["barcode2_TACAGCGTACACACGTTAAG"]
     
   - name: "ED15-[K65R-A]"
     forward_motifs: ["barcode1_CCTACGTTCTCGTTGCCGTT"]
-    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    reverse_motifs: ["barcode2_ATTGAATACACAATGAACCG"]
     
   - name: "ED15-[K65R-B]"
     forward_motifs: ["barcode1_GAGGTTGCAATCGTACTCCC"]
-    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    reverse_motifs: ["barcode2_ATTGAATACACAATGAACCG"]
     
   - name: "ED15-[K65R-C]"
     forward_motifs: ["barcode1_GCCGAACATAGTGATATCAG"]
-    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    reverse_motifs: ["barcode2_ATTGAATACACAATGAACCG"]
     
   - name: "ED15-[M184I-A]"
     forward_motifs: ["barcode1_CCTACGTTCTCGTTGCCGTT"]
-    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    reverse_motifs: ["barcode2_AACAAACGCGTGCGTACGAT"]
     
   - name: "ED15-[M184I-B]"
     forward_motifs: ["barcode1_GAGGTTGCAATCGTACTCCC"]
-    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    reverse_motifs: ["barcode2_AACAAACGCGTGCGTACGAT"]
     
   - name: "ED15-[M184I-C]"
     forward_motifs: ["barcode1_GCCGAACATAGTGATATCAG"]
-    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    reverse_motifs: ["barcode2_AACAAACGCGTGCGTACGAT"]
     
   - name: "ED15-[M184V-A]"
     forward_motifs: ["barcode1_CCTACGTTCTCGTTGCCGTT"]
-    reverse_motifs: ["barcode2_CTGTCGCGTGATGAGAAGCC"]
+    reverse_motifs: ["barcode2_TGAGATACGTTGAGAGTATT"]
     
   - name: "ED15-[M184V-B]"
     forward_motifs: ["barcode1_GAGGTTGCAATCGTACTCCC"]
-    reverse_motifs: ["barcode2_CTGTCGCGTGATGAGAAGCC"]
+    reverse_motifs: ["barcode2_TGAGATACGTTGAGAGTATT"]
     
   - name: "ED15-[M184V-C]"
     forward_motifs: ["barcode1_GCCGAACATAGTGATATCAG"]
+    reverse_motifs: ["barcode2_TGAGATACGTTGAGAGTATT"]
+    
+  # AP04 samples
+  - name: "AP04-[Negative Control-A]"
+    forward_motifs: ["barcode1_GGACGTAGCATGACCTCTTC"]
+    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "AP04-[pUC19-10ng-C]"
+    forward_motifs: ["barcode1_GGGTATTTCGCACGCATCAT"]
+    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "AP04-[SHFL2-1ng-B]"
+    forward_motifs: ["barcode1_GGTGACGACGTGTTGAAAGC"]
+    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "AP04-[A3G-10ng-A]"
+    forward_motifs: ["barcode1_TACCTAAGTCAACGTTGTAG"]
+    reverse_motifs: ["barcode2_TCGAAATCTAACCAACGAGA"]
+    
+  - name: "AP04-[Negative Control-B]"
+    forward_motifs: ["barcode1_GGACGTAGCATGACCTCTTC"]
+    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    
+  - name: "AP04-[SHFL1-1ng-A]"
+    forward_motifs: ["barcode1_GGGTATTTCGCACGCATCAT"]
+    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    
+  - name: "AP04-[SHFL2-1ng-C]"
+    forward_motifs: ["barcode1_GGTGACGACGTGTTGAAAGC"]
+    reverse_motifs: ["barcode2_GATCTTAGACAACGCAACTA"]
+    
+  - name: "AP04-[Negative Control-C]"
+    forward_motifs: ["barcode1_GGACGTAGCATGACCTCTTC"]
+    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    
+  - name: "AP04-[SHFL1-1ng-B]"
+    forward_motifs: ["barcode1_GGGTATTTCGCACGCATCAT"]
+    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    
+  - name: "AP04-[SHFL2-10ng-A]"
+    forward_motifs: ["barcode1_GGTGACGACGTGTTGAAAGC"]
+    reverse_motifs: ["barcode2_ACGCCTTTCCGGATCCGTAC"]
+    
+  - name: "AP04-[pUC19-1ng-A]"
+    forward_motifs: ["barcode1_GGACGTAGCATGACCTCTTC"]
     reverse_motifs: ["barcode2_CTGTCGCGTGATGAGAAGCC"]
+    
+  - name: "AP04-[SHFL1-1ng-C]"
+    forward_motifs: ["barcode1_GGGTATTTCGCACGCATCAT"]
+    reverse_motifs: ["barcode2_CTGTCGCGTGATGAGAAGCC"]
+    
+  - name: "AP04-[SHFL2-10ng-B]"
+    forward_motifs: ["barcode1_GGTGACGACGTGTTGAAAGC"]
+    reverse_motifs: ["barcode2_CTGTCGCGTGATGAGAAGCC"]
+    
+  - name: "AP04-[pUC19-1ng-B]"
+    forward_motifs: ["barcode1_GGACGTAGCATGACCTCTTC"]
+    reverse_motifs: ["barcode2_TACAGCGTACACACGTTAAG"]
+    
+  - name: "AP04-[SHFL1-10ng-A]"
+    forward_motifs: ["barcode1_GGGTATTTCGCACGCATCAT"]
+    reverse_motifs: ["barcode2_TACAGCGTACACACGTTAAG"]
+    
+  - name: "AP04-[SHFL2-10ng-C]"
+    forward_motifs: ["barcode1_GGTGACGACGTGTTGAAAGC"]
+    reverse_motifs: ["barcode2_TACAGCGTACACACGTTAAG"]
+    
+  - name: "AP04-[pUC19-1ng-C]"
+    forward_motifs: ["barcode1_GGACGTAGCATGACCTCTTC"]
+    reverse_motifs: ["barcode2_ATTGAATACACAATGAACCG"]
+    
+  - name: "AP04-[SHFL1-10ng-B]"
+    forward_motifs: ["barcode1_GGGTATTTCGCACGCATCAT"]
+    reverse_motifs: ["barcode2_ATTGAATACACAATGAACCG"]
+    
+  - name: "AP04-[A3G-1ng-A]"
+    forward_motifs: ["barcode1_GGTGACGACGTGTTGAAAGC"]
+    reverse_motifs: ["barcode2_ATTGAATACACAATGAACCG"]
+    
+  - name: "AP04-[pUC19-10ng-A]"
+    forward_motifs: ["barcode1_GGACGTAGCATGACCTCTTC"]
+    reverse_motifs: ["barcode2_AACAAACGCGTGCGTACGAT"]
+    
+  - name: "AP04-[SHFL1-10ng-C]"
+    forward_motifs: ["barcode1_GGGTATTTCGCACGCATCAT"]
+    reverse_motifs: ["barcode2_AACAAACGCGTGCGTACGAT"]
+    
+  - name: "AP04-[A3G-1ng-B]"
+    forward_motifs: ["barcode1_GGTGACGACGTGTTGAAAGC"]
+    reverse_motifs: ["barcode2_AACAAACGCGTGCGTACGAT"]
+    
+  - name: "AP04-[pUC19-10ng-B]"
+    forward_motifs: ["barcode1_GGACGTAGCATGACCTCTTC"]
+    reverse_motifs: ["barcode2_TGAGATACGTTGAGAGTATT"]
+    
+  - name: "AP04-[SHFL2-1ng-A]"
+    forward_motifs: ["barcode1_GGGTATTTCGCACGCATCAT"]
+    reverse_motifs: ["barcode2_TGAGATACGTTGAGAGTATT"]
+    
+  - name: "AP04-[A3G-1ng-C]"
+    forward_motifs: ["barcode1_GGTGACGACGTGTTGAAAGC"]
+    reverse_motifs: ["barcode2_TGAGATACGTTGAGAGTATT"]
 

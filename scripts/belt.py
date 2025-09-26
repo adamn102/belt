@@ -12,44 +12,13 @@ parent_dir = os.path.dirname(current_dir)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-try:
-    from extract import extract_umis
-    from whitelist import umi_whitelist
-    from umi_map import umi_extraction_map
-    from umi_group import long_read_umi_grouping_fast
-    from consensus import process_grouped_bam
-    from map import map_pipeline
-    from utils import *
-except ImportError as e:
-    # If imports fail, create mock functions for CLI testing
-    # Only show warning if it's not a missing module error
-    if "No module named 'belt.scripts'" not in str(e):
-        print(f"Warning: Could not import some modules: {e}")
-        print("Creating mock functions for CLI testing...")
-    
-    def extract_umis(*args, **kwargs):
-        print("Mock extract_umis called with:", args, kwargs)
-    
-    def umi_whitelist(*args, **kwargs):
-        print("Mock umi_whitelist called with:", args, kwargs)
-    
-    def umi_extraction_map(*args, **kwargs):
-        print("Mock umi_extraction_map called with:", args, kwargs)
-    
-    def long_read_umi_grouping_fast(*args, **kwargs):
-        print("Mock long_read_umi_grouping_fast called with:", args, kwargs)
-    
-    def process_grouped_bam(*args, **kwargs):
-        print("Mock process_grouped_bam called with:", args, kwargs)
-        return ["mock_consensus_1.fasta", "mock_consensus_2.fasta"]
-    
-    def map_pipeline(*args, **kwargs):
-        print("Mock map_pipeline called with:", args, kwargs)
-        return {
-            'filtered_fastq': 'mock_filtered.fastq',
-            'bam_file': 'mock.bam',
-            'bam_index': 'mock.bam.bai'
-        }
+from extract import extract_umis
+from whitelist import umi_whitelist
+from umi_map import umi_extraction_map
+from umi_group import long_read_umi_grouping_fast
+from consensus import process_grouped_bam
+from map import map_pipeline
+from utils import *
 
 import yaml
 
