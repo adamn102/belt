@@ -5,7 +5,7 @@ motifs:
   5p_prefix: AGGTTAA      # 7 bp prefix for start barcode
   5p_suffix: AGTCCAATCG  # 10 bp suffix for start barcode
   3p_prefix: CATCCATACT  # 10 bp prefix for end barcode
-  3p_suffix: AAGGTTA    # 7 bp suffix for end barcode
+  3p_suffix: AAGGTTA     # 7 bp suffix for end barcode
 
 barcodes:
   F01: AAAGCACAGTCCGTAGGTTT
@@ -14,6 +14,7 @@ barcodes:
   F04: ATATAATCGGACTAGGTAGG
   F05: CCTACGTTCTCGTTGCCGTT
   F06: GAGGTTGCAATCGTACTCCC
+  F07: GCCGAACATAGTGATATCAG
   F08: GGACGTAGCATGACCTCTTC
   F09: GGGTATTTCGCACGCATCAT
   F10: GGTGACGACGTGTTGAAAGC

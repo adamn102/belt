@@ -116,26 +116,26 @@ def align_and_sort_reads(reference, fastq, output_sorted_bam, threads=DEFAULT_TH
             '-t', str(threads), reference, fastq
         ]
         
-        if verbose:
-            logger.log_message(f"Running: {' '.join(minimap2_cmd)}")
+        # Align with minimap2 (quiet mode)
         
         with open(temp_bam, 'wb') as bam_file:
-            subprocess.run(minimap2_cmd, stdout=bam_file, check=True)
+            with open(os.devnull, 'w') as devnull:
+                subprocess.run(minimap2_cmd, stdout=bam_file, stderr=devnull, check=True)
         
         # Sort BAM file
         sort_cmd = ['samtools', 'sort', '-@', str(threads), temp_bam, '-o', output_sorted_bam]
         
-        if verbose:
-            logger.log_message(f"Running: {' '.join(sort_cmd)}")
+        # Sort BAM file (quiet mode)
         
-        subprocess.run(sort_cmd, check=True)
+        with open(os.devnull, 'w') as devnull:
+            subprocess.run(sort_cmd, stderr=devnull, check=True)
         
         # Index BAM file
         index_cmd = ['samtools', 'index', output_sorted_bam]
-        subprocess.run(index_cmd, check=True)
+        with open(os.devnull, 'w') as devnull:
+            subprocess.run(index_cmd, stderr=devnull, check=True)
         
-        if verbose:
-            logger.log_message(f"Alignment completed: {output_sorted_bam}")
+        # Alignment completed
             
     finally:
         # Clean up temporary file
@@ -189,9 +189,54 @@ def compile_barcode_regex(config):
     return start_regex, end_regex
 
 
-def assign_read_to_sample(sequence, start_regex, end_regex, barcodes, sample_map):
+def calculate_mismatches(seq1, seq2):
     """
-    Assign a read to a sample based on barcode detection.
+    Calculate the number of mismatches between two sequences.
+    
+    Args:
+        seq1 (str): First sequence
+        seq2 (str): Second sequence
+        
+    Returns:
+        int: Number of mismatches
+    """
+    if len(seq1) != len(seq2):
+        return max(len(seq1), len(seq2))  # Return max length as penalty for length mismatch
+    
+    mismatches = sum(1 for a, b in zip(seq1, seq2) if a != b)
+    return mismatches
+
+
+def find_best_barcode_match(extracted_barcode, barcodes, max_mismatches):
+    """
+    Find the best matching barcode with mismatch tolerance.
+    
+    Args:
+        extracted_barcode (str): The 20bp barcode sequence extracted from the read
+        barcodes (dict): Dictionary mapping barcode names to sequences
+        max_mismatches (int): Maximum number of mismatches allowed
+        
+    Returns:
+        tuple: (best_match_name, mismatch_count) or (None, None) if no good match
+    """
+    best_match = None
+    best_mismatches = max_mismatches + 1
+    
+    for barcode_name, barcode_seq in barcodes.items():
+        mismatches = calculate_mismatches(extracted_barcode, barcode_seq)
+        if mismatches <= max_mismatches and mismatches < best_mismatches:
+            best_match = barcode_name
+            best_mismatches = mismatches
+    
+    if best_match is not None:
+        return best_match, best_mismatches
+    else:
+        return None, None
+
+
+def assign_read_to_sample(sequence, start_regex, end_regex, barcodes, sample_map, mismatch_tolerance=DEFAULT_MISMATCH_THRESHOLD):
+    """
+    Assign a read to a sample based on barcode detection with mismatch tolerance.
     
     Args:
         sequence (str): DNA sequence to analyze
@@ -199,6 +244,7 @@ def assign_read_to_sample(sequence, start_regex, end_regex, barcodes, sample_map
         end_regex: Compiled regex for end barcode detection
         barcodes (dict): Dictionary mapping barcode names to sequences
         sample_map (dict): Dictionary mapping (start_barcode, end_barcode) to sample names
+        mismatch_tolerance (int): Maximum number of mismatches allowed in barcode sequences
         
     Returns:
         tuple: (sample_name, assignment_reason, barcode_info)
@@ -213,16 +259,18 @@ def assign_read_to_sample(sequence, start_regex, end_regex, barcodes, sample_map
     start_barcode_seq = start_match.group(1)
     end_barcode_seq = end_match.group(1)
     
-    # Match to known barcodes
-    start_name = next((k for k, v in barcodes.items() if v == start_barcode_seq), None)
-    end_name = next((k for k, v in barcodes.items() if v == end_barcode_seq), None)
+    # Match to known barcodes with mismatch tolerance
+    start_name, start_mismatches = find_best_barcode_match(start_barcode_seq, barcodes, mismatch_tolerance)
+    end_name, end_mismatches = find_best_barcode_match(end_barcode_seq, barcodes, mismatch_tolerance)
     
     if not start_name or not end_name:
         return "unassigned", "unknown_barcode", {
             'start_barcode': start_barcode_seq,
             'end_barcode': end_barcode_seq,
             'start_name': start_name,
-            'end_name': end_name
+            'end_name': end_name,
+            'start_mismatches': start_mismatches,
+            'end_mismatches': end_mismatches
         }
     
     # Look up sample
@@ -232,14 +280,18 @@ def assign_read_to_sample(sequence, start_regex, end_regex, barcodes, sample_map
             'start_barcode': start_barcode_seq,
             'end_barcode': end_barcode_seq,
             'start_name': start_name,
-            'end_name': end_name
+            'end_name': end_name,
+            'start_mismatches': start_mismatches,
+            'end_mismatches': end_mismatches
         }
     else:
         return "unassigned", "no_sample_match", {
             'start_barcode': start_barcode_seq,
             'end_barcode': end_barcode_seq,
             'start_name': start_name,
-            'end_name': end_name
+            'end_name': end_name,
+            'start_mismatches': start_mismatches,
+            'end_mismatches': end_mismatches
         }
 
 
@@ -289,13 +341,15 @@ def demultiplex_fastq_barcode_based(input_fastq, output_dir, config_file, sample
     # Write CSV header
     header = [
         'read_name', 'sequence_length', 'assigned_sample', 'assignment_reason',
-        'start_barcode_seq', 'end_barcode_seq', 'start_barcode_name', 'end_barcode_name'
+        'start_barcode_seq', 'end_barcode_seq', 'start_barcode_name', 'end_barcode_name',
+        'start_mismatches', 'end_mismatches'
     ]
     csv_writer.writerow(header)
     
     # Process reads
     total_reads = 0
     assigned_reads = 0
+    sample_counts = {}  # Track reads per sample
     
     for record in SeqIO.parse(input_fastq, "fastq"):
         total_reads += 1
@@ -303,7 +357,7 @@ def demultiplex_fastq_barcode_based(input_fastq, output_dir, config_file, sample
         
         # Assign read to sample
         sample_name, assignment_reason, barcode_info = assign_read_to_sample(
-            sequence, start_regex, end_regex, barcodes, sample_map
+            sequence, start_regex, end_regex, barcodes, sample_map, DEFAULT_MISMATCH_THRESHOLD
         )
         
         # Write to appropriate file
@@ -311,8 +365,11 @@ def demultiplex_fastq_barcode_based(input_fastq, output_dir, config_file, sample
             if sample_name in sample_files:
                 SeqIO.write(record, sample_files[sample_name], "fastq")
                 assigned_reads += 1
+                # Track sample counts
+                sample_counts[sample_name] = sample_counts.get(sample_name, 0) + 1
         else:
             SeqIO.write(record, unassigned_file, "fastq")
+            sample_counts["unassigned"] = sample_counts.get("unassigned", 0) + 1
         
         # Write CSV row
         if barcode_info:
@@ -321,10 +378,12 @@ def demultiplex_fastq_barcode_based(input_fastq, output_dir, config_file, sample
                 barcode_info.get('start_barcode', ''),
                 barcode_info.get('end_barcode', ''),
                 barcode_info.get('start_name', ''),
-                barcode_info.get('end_name', '')
+                barcode_info.get('end_name', ''),
+                barcode_info.get('start_mismatches', ''),
+                barcode_info.get('end_mismatches', '')
             ]
         else:
-            row = [record.id, len(sequence), sample_name, assignment_reason, '', '', '', '']
+            row = [record.id, len(sequence), sample_name, assignment_reason, '', '', '', '', '', '']
         
         csv_writer.writerow(row)
     
@@ -333,6 +392,34 @@ def demultiplex_fastq_barcode_based(input_fastq, output_dir, config_file, sample
         file_handle.close()
     unassigned_file.close()
     csv_file.close()
+    
+    # Print demultiplexing statistics (always show)
+    print(f"\n" + "="*60)
+    print(f"📊 DEMULTIPLEXING STATISTICS")
+    print(f"="*60)
+    print(f"   Total reads processed: {total_reads:,}")
+    print(f"   Successfully assigned: {assigned_reads:,} ({assigned_reads/total_reads*100:.1f}%)")
+    print(f"   Unassigned reads: {total_reads - assigned_reads:,} ({(total_reads - assigned_reads)/total_reads*100:.1f}%)")
+    print(f"   Unique samples found: {len(unique_samples)}")
+    print(f"   Output directory: {demux_dir}")
+    print()
+    
+    # Show sample assignments
+    print(f"📋 SAMPLE ASSIGNMENTS:")
+    print(f"-" * 60)
+    
+    # Sort samples by read count (descending)
+    sorted_samples = sorted(sample_counts.items(), key=lambda x: x[1], reverse=True)
+    
+    for sample_name, count in sorted_samples:
+        percentage = (count / total_reads) * 100
+        if sample_name == "unassigned":
+            print(f"   {sample_name:25} {count:6,} reads ({percentage:5.1f}%)")
+        else:
+            print(f"   {sample_name:25} {count:6,} reads ({percentage:5.1f}%)")
+    
+    print(f"="*60)
+    print()
     
     return {
         'total_reads': total_reads,
@@ -387,10 +474,19 @@ def map_pipeline(reference, fastq, output_dir, min_length=DEFAULT_MIN_LENGTH, mi
         if verbose:
             logger.log_message(f"Demultiplexing with config: {config_file} and sample sheet: {sample_sheet}")
         
-        demux_results = demultiplex_fastq_barcode_based(filtered_fastq, output_dir, config_file, sample_sheet)
+        try:
+            demux_results = demultiplex_fastq_barcode_based(filtered_fastq, output_dir, config_file, sample_sheet)
+            
+            if verbose:
+                logger.log_message(f"Demultiplexing completed: {demux_results['assigned_reads']} assigned, {demux_results['unassigned_reads']} unassigned")
+                logger.log_message(f"Demultiplexed directory: {demux_results['demultiplexed_dir']}")
+        except Exception as e:
+            logger.log_message(f"Error during demultiplexing: {e}")
+            raise
         
+        # Wait for demultiplexing to complete fully before mapping
         if verbose:
-            logger.log_message(f"Demultiplexing completed: {demux_results['assigned_reads']} assigned, {demux_results['unassigned_reads']} unassigned")
+            logger.log_message("Demultiplexing completed, starting mapping phase...")
         
         # Map each demultiplexed file
         demux_dir = demux_results['demultiplexed_dir']
@@ -404,11 +500,11 @@ def map_pipeline(reference, fastq, output_dir, min_length=DEFAULT_MIN_LENGTH, mi
             sample_fastq = os.path.join(demux_dir, sample_file)
             sample_bam = os.path.join(output_dir, f"{sample_name}.bam")
             
-            if verbose:
-                logger.log_message(f"Mapping {sample_name}...")
-            
-            align_and_sort_reads(reference, sample_fastq, sample_bam, threads, verbose)
-            results['demultiplexed_files'].append(sample_bam)
+        if verbose:
+            logger.log_message(f"Mapping {sample_name}...")
+        
+        align_and_sort_reads(reference, sample_fastq, sample_bam, threads, verbose)
+        results['demultiplexed_files'].append(sample_bam)
         
         results['demux_results'] = demux_results
     else:
@@ -443,7 +539,7 @@ def main():
     try:
         results = map_pipeline(
             reference=args.reference,
-            fastq=args.fastq,
+             fastq=args.fastq,
             output_dir=args.output_dir,
             min_length=args.min_length,
             min_quality=args.min_quality,
