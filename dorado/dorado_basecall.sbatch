@@ -76,7 +76,6 @@ dorado basecaller \
     --output-dir $OUTPUT_DIR \
     --device cuda:all \
     --kit-name $KIT_NAME \
-    --emit-fastq
 
 # Check if basecalling was successful
 if [ $? -eq 0 ]; then

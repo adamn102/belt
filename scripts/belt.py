@@ -112,8 +112,9 @@ def extract(reference, alignment, min_read_length, motif, output):
 @click.option('--min-length', default=1000, type=int, help="Minimum read length for filtering")
 @click.option('--min-quality', default=7, type=int, help="Minimum average quality score for filtering")
 @click.option('--threads', default=4, type=int, help="Number of threads to use")
-@click.option('--sample-sheet', help="YAML file with motif information for demultiplexing (optional)")
-def map(reference, fastq, output_dir, min_length, min_quality, threads, sample_sheet):
+@click.option('--config', help="Config YAML file for barcode demultiplexing (optional)")
+@click.option('--sample-sheet', help="Sample sheet CSV file for demultiplexing (optional)")
+def map(reference, fastq, output_dir, min_length, min_quality, threads, config, sample_sheet):
     """Map FASTQ reads to reference using minimap2 with filtering, sorting, indexing, and optional demultiplexing"""
     import glob
     from pathlib import Path
@@ -156,6 +157,7 @@ def map(reference, fastq, output_dir, min_length, min_quality, threads, sample_s
             min_length=min_length,
             min_quality=min_quality,
             threads=threads,
+            config_file=config,
             sample_sheet=sample_sheet
         )
         all_results.append(result)
