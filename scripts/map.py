@@ -36,7 +36,7 @@ DEFAULT_MIN_LENGTH = 1000
 DEFAULT_MIN_QUALITY = 7
 DEFAULT_THREADS = 4
 DEFAULT_SEARCH_WINDOW = 200
-DEFAULT_MISMATCH_THRESHOLD = 6
+DEFAULT_MISMATCH_THRESHOLD = 5
 
 # Output directory names
 DEMULTIPLEXED_DIR = "demultiplexed_fastq"
@@ -227,47 +227,72 @@ def create_fastq_from_bam_read(read):
     )
 
 
-def calculate_mismatches(seq1, seq2):
+def calculate_levenshtein_distance(seq1, seq2):
     """
-    Calculate the number of mismatches between two sequences.
+    Calculate the Levenshtein distance (edit distance) between two sequences.
+    This handles substitutions, insertions, and deletions.
     
     Args:
         seq1 (str): First sequence
         seq2 (str): Second sequence
         
     Returns:
-        int: Number of mismatches
+        int: Levenshtein distance (minimum number of edits needed)
     """
-    if len(seq1) != len(seq2):
-        return max(len(seq1), len(seq2))  # Return max length as penalty for length mismatch
+    if len(seq1) == 0:
+        return len(seq2)
+    if len(seq2) == 0:
+        return len(seq1)
     
-    mismatches = sum(1 for a, b in zip(seq1, seq2) if a != b)
-    return mismatches
+    # Create a matrix to store distances
+    matrix = [[0] * (len(seq2) + 1) for _ in range(len(seq1) + 1)]
+    
+    # Initialize first row and column
+    for i in range(len(seq1) + 1):
+        matrix[i][0] = i
+    for j in range(len(seq2) + 1):
+        matrix[0][j] = j
+    
+    # Fill the matrix
+    for i in range(1, len(seq1) + 1):
+        for j in range(1, len(seq2) + 1):
+            if seq1[i-1] == seq2[j-1]:
+                cost = 0
+            else:
+                cost = 1
+            
+            matrix[i][j] = min(
+                matrix[i-1][j] + 1,      # deletion
+                matrix[i][j-1] + 1,      # insertion
+                matrix[i-1][j-1] + cost  # substitution
+            )
+    
+    return matrix[len(seq1)][len(seq2)]
 
 
 def find_best_barcode_match(extracted_barcode, barcodes, max_mismatches):
     """
-    Find the best matching barcode with mismatch tolerance.
+    Find the best matching barcode with edit distance tolerance.
     
     Args:
         extracted_barcode (str): The barcode sequence extracted from the read
         barcodes (dict): Dictionary mapping barcode names to sequences
-        max_mismatches (int): Maximum number of mismatches allowed
+        max_mismatches (int): Maximum edit distance allowed
         
     Returns:
-        tuple: (best_match_name, mismatch_count) or (None, None) if no good match
+        tuple: (best_match_name, edit_distance) or (None, None) if no good match
     """
     best_match = None
-    best_mismatches = max_mismatches + 1
+    best_distance = max_mismatches + 1
     
     for barcode_name, barcode_seq in barcodes.items():
-        mismatches = calculate_mismatches(extracted_barcode, barcode_seq)
-        if mismatches <= max_mismatches and mismatches < best_mismatches:
+        distance = calculate_levenshtein_distance(extracted_barcode, barcode_seq)
+        if distance <= max_mismatches and distance < best_distance:
             best_match = barcode_name
-            best_mismatches = mismatches
+            best_distance = distance
     
     if best_match is not None:
-        return best_match, best_mismatches
+        return best_match, best_distance
     else:
         return None, None
 
@@ -286,9 +311,9 @@ def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sa
     Returns:
         tuple: (sample_name, assignment_reason, barcode_info)
     """
-    # Find best matches with mismatch tolerance
-    start_name, start_mismatches = find_best_barcode_match(start_barcode, barcodes, mismatch_tolerance)
-    end_name, end_mismatches = find_best_barcode_match(end_barcode, barcodes, mismatch_tolerance)
+    # Find best matches with edit distance tolerance
+    start_name, start_distance = find_best_barcode_match(start_barcode, barcodes, mismatch_tolerance)
+    end_name, end_distance = find_best_barcode_match(end_barcode, barcodes, mismatch_tolerance)
     
     if not start_name or not end_name:
         return "unassigned", "barcode_not_found", {
@@ -296,8 +321,8 @@ def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sa
             'end_barcode': end_barcode,
             'start_name': start_name or 'unknown',
             'end_name': end_name or 'unknown',
-            'start_mismatches': start_mismatches if start_name else None,
-            'end_mismatches': end_mismatches if end_name else None
+            'start_mismatches': start_distance if start_name else None,
+            'end_mismatches': end_distance if end_name else None
         }
     
     # Check if this barcode combination exists in sample map
@@ -309,8 +334,8 @@ def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sa
             'end_barcode': end_barcode,
             'start_name': start_name,
             'end_name': end_name,
-            'start_mismatches': start_mismatches,
-            'end_mismatches': end_mismatches
+            'start_mismatches': start_distance,
+            'end_mismatches': end_distance
         }
     
     return sample_name, "success", {
@@ -318,8 +343,8 @@ def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sa
         'end_barcode': end_barcode,
         'start_name': start_name,
         'end_name': end_name,
-        'start_mismatches': start_mismatches,
-        'end_mismatches': end_mismatches
+        'start_mismatches': start_distance,
+        'end_mismatches': end_distance
     }
 
 
