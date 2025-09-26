@@ -62,12 +62,15 @@ def main():
 
 @main.command()
 @click.option('--reference', required=True, help="Reference genome fasta file")
-@click.option('--alignment', required=True, help="Input BAM file")
-@click.option('--output', required=True, help="Output BAM file")
+@click.option('--alignment', required=True, help="Input BAM file(s) or directory - can use glob patterns")
+@click.option('--output', required=True, help="Output directory")
 @click.option('--min_read_length', default=3900, type=int, help="Minimum expected read length")
 @click.option('--motif', required=False, default=["NNNNNNNNNNNN"], help="Barcode motif sequence")
 def extract(reference, alignment, min_read_length, motif, output):
     """Extract reads based on motifs and UMIs from aligned BAM files"""
+    import glob
+    from pathlib import Path
+    
     # Parse motif if it's a string representation of a list
     if isinstance(motif, str):
         import ast
@@ -79,7 +82,58 @@ def extract(reference, alignment, min_read_length, motif, output):
     elif not isinstance(motif, list):
         motif = [motif]
     
-    extract_umis(reference, alignment, min_read_length, motif, output)
+    # Expand glob patterns and find BAM files
+    expanded_bam_files = []
+    
+    # Check if alignment is a directory
+    if os.path.isdir(alignment):
+        # Find all BAM files in the directory
+        bam_pattern = os.path.join(alignment, "*.bam")
+        matched_files = glob.glob(bam_pattern)
+        if not matched_files:
+            print(f"Warning: No BAM files found in directory: {alignment}")
+        else:
+            expanded_bam_files.extend(matched_files)
+    else:
+        # Check if the pattern contains glob characters
+        if any(char in alignment for char in ['*', '?', '[', ']']):
+            # Expand glob pattern
+            matched_files = glob.glob(alignment)
+            if not matched_files:
+                print(f"Warning: No files found matching pattern: {alignment}")
+            else:
+                # Filter to only BAM files
+                bam_files = [f for f in matched_files if f.endswith('.bam')]
+                if not bam_files:
+                    print(f"Warning: No BAM files found matching pattern: {alignment}")
+                else:
+                    expanded_bam_files.extend(bam_files)
+        else:
+            # Single file - check if it exists and is a BAM file
+            if os.path.exists(alignment):
+                if alignment.endswith('.bam'):
+                    expanded_bam_files.append(alignment)
+                else:
+                    print(f"Warning: File {alignment} is not a BAM file")
+            else:
+                print(f"Warning: File not found: {alignment}")
+    
+    if not expanded_bam_files:
+        print("❌ No valid BAM files found!")
+        exit(1)
+    
+    print(f"Found {len(expanded_bam_files)} BAM file(s) to process:")
+    for f in expanded_bam_files:
+        print(f"  - {f}")
+    
+    # Process each BAM file
+    for bam_file in expanded_bam_files:
+        print(f"Processing BAM file: {bam_file}")
+        # Generate output path for this BAM file - output CSV directly to output directory
+        sample_name = Path(bam_file).stem
+        bam_output = os.path.join(output, f"{sample_name}_extracted.csv")
+        
+        extract_umis(reference, bam_file, min_read_length, motif, bam_output)
 
 
 @main.command()

@@ -21,12 +21,21 @@ import os
 import pandas as pd
 
 
-def extract_umis(reference, alignedReads, minReadLength, barcodeMotifs, outputDir):
+def extract_umis(reference, alignedReads, minReadLength, barcodeMotifs, outputPath):
     sampleName: object = alignedReads.split("/")[-1].split(".")[0]
 
-    # Check if the output directory exists, if not create it
-    if not os.path.exists(outputDir):
-        os.makedirs(outputDir)
+    # Check if outputPath is a directory or a file
+    if outputPath.endswith('.csv'):
+        # Direct file path - create parent directory if needed
+        output_dir = os.path.dirname(outputPath)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        csv_file = outputPath
+    else:
+        # Directory path - create directory and use default filename
+        if not os.path.exists(outputPath):
+            os.makedirs(outputPath)
+        csv_file = os.path.join(outputPath, f"{sampleName}.belt_extract.csv")
 
     # Initializing ttools
     logger = log()
@@ -49,7 +58,7 @@ def extract_umis(reference, alignedReads, minReadLength, barcodeMotifs, outputDi
     df = pd.DataFrame.from_dict(raw_UMI_dict, orient='index', columns=umi_columns)
     df.index.name = 'Read Name'
     df.reset_index(inplace=True)
-    df.to_csv(f"{outputDir}/{sampleName}.belt_extract.csv", index=False)
+    df.to_csv(csv_file, index=False)
 
 
 def findUMI(reference, alignedReads, barcodeMotifs, minReadLength):
