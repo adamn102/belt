@@ -6,25 +6,75 @@ This module provides functionality for mapping FASTQ reads to reference sequence
 using minimap2 with filtering, sorting, and indexing.
 """
 
+# Standard library imports
+import csv
 import os
 import subprocess
 from pathlib import Path
+
+# Third-party imports
+try:
+    import pysam
+    import yaml
+    from Bio import SeqIO
+    THIRD_PARTY_AVAILABLE = True
+except ImportError:
+    THIRD_PARTY_AVAILABLE = False
+
+# Local imports
 from utils import log
 
+# Constants
+DEFAULT_MIN_LENGTH = 1000
+DEFAULT_MIN_QUALITY = 7
+DEFAULT_THREADS = 4
+DEFAULT_SEARCH_WINDOW = 200
+DEFAULT_MISMATCH_THRESHOLD = 2
+DEFAULT_SEARCH_WINDOW_5P = 100
+DEFAULT_SEARCH_WINDOW_3P = 100
 
-def filter_fastq(input_fastq, output_fastq, min_length=1000, min_quality=7, verbose=True):
+# File extensions
+BAM_EXTENSION = '.bam'
+BAI_EXTENSION = '.bai'
+FASTQ_EXTENSION = '.fastq'
+CSV_EXTENSION = '.csv'
+YAML_EXTENSION = '.yaml'
+
+# Output directory names
+DEMULTIPLEXED_DIR = "demultiplexed_fastq"
+DEMULTIPLEXED_BAM_DIR = "demultiplexed"
+FILTERED_FASTQ_NAME = "filtered_input.fastq"
+UNASSIGNED_NAME = "unassigned"
+MOTIF_CSV_NAME = "motif_extraction_results.csv"
+BARCODE_CSV_NAME = "barcode_extraction_results.csv"
+
+
+# =============================================================================
+# FASTQ PROCESSING FUNCTIONS
+# =============================================================================
+
+def filter_fastq(input_fastq, output_fastq, min_length=DEFAULT_MIN_LENGTH, min_quality=DEFAULT_MIN_QUALITY, verbose=True):
     """
-    Filter FASTQ file based on read length and quality
+    Filter FASTQ file based on read length and quality scores.
+    
+    Reads are filtered to keep only those meeting minimum length and quality requirements.
+    If BioPython is not available, the file is copied without filtering.
     
     Args:
         input_fastq (str): Path to input FASTQ file
         output_fastq (str): Path to output filtered FASTQ file
-        min_length (int): Minimum read length
-        min_quality (int): Minimum average quality score
+        min_length (int): Minimum read length (default: 1000)
+        min_quality (int): Minimum average quality score (default: 7)
         verbose (bool): Whether to show detailed logging
     
     Returns:
-        dict: Dictionary with filtering statistics, or None if failed
+        dict: Dictionary with filtering statistics containing:
+            - total_reads: Total number of reads processed
+            - filtered_reads: Number of reads passing filters
+            - length_filtered: Number of reads filtered by length
+            - quality_filtered: Number of reads filtered by quality
+            - filter_rate: Fraction of reads passing filters
+        None if filtering failed
     """
     logger = log()
     if verbose:
@@ -96,19 +146,26 @@ def filter_fastq(input_fastq, output_fastq, min_length=1000, min_quality=7, verb
         return None
 
 
-def run_minimap2_to_sorted(reference, fastq, output_sorted_bam, threads=4, verbose=True):
+# =============================================================================
+# ALIGNMENT FUNCTIONS
+# =============================================================================
+
+def align_and_sort_reads(reference, fastq, output_sorted_bam, threads=DEFAULT_THREADS, verbose=True):
     """
-    Run minimap2 alignment and pipe directly to samtools sort
+    Align FASTQ reads to reference using minimap2 and sort the output BAM file.
+    
+    This function runs minimap2 with Oxford Nanopore optimized parameters and pipes
+    the output directly to samtools sort for efficiency.
     
     Args:
-        reference (str): Path to reference genome
+        reference (str): Path to reference genome FASTA file
         fastq (str): Path to input FASTQ file
         output_sorted_bam (str): Path to output sorted BAM file
-        threads (int): Number of threads to use
+        threads (int): Number of threads to use (default: 4)
         verbose (bool): Whether to show detailed logging
     
     Returns:
-        bool: True if successful, False otherwise
+        bool: True if alignment and sorting successful, False otherwise
     """
     logger = log()
     if verbose:
@@ -164,14 +221,16 @@ def run_minimap2_to_sorted(reference, fastq, output_sorted_bam, threads=4, verbo
 
 def index_bam(bam_file, verbose=True):
     """
-    Index BAM file using samtools
+    Create BAM index file using samtools.
+    
+    Creates a .bai index file for the given BAM file to enable efficient random access.
     
     Args:
         bam_file (str): Path to BAM file to index
         verbose (bool): Whether to show detailed logging
     
     Returns:
-        bool: True if successful, False otherwise
+        bool: True if indexing successful, False otherwise
     """
     logger = log()
     if verbose:
@@ -195,6 +254,10 @@ def index_bam(bam_file, verbose=True):
         logger.log_message(f"Error indexing BAM: {e}")
         return False
 
+
+# =============================================================================
+# CONFIGURATION LOADING FUNCTIONS
+# =============================================================================
 
 def load_barcodes_from_csv(csv_file):
     """
@@ -258,6 +321,10 @@ def load_sample_sheet_yaml(yaml_file):
         return None
 
 
+# =============================================================================
+# SEQUENCE ANALYSIS FUNCTIONS
+# =============================================================================
+
 def find_motif_in_sequence(sequence, motif, max_mismatches, search_window=None):
     """
     Find a motif in a sequence using fast fuzzy matching (substitutions only)
@@ -317,6 +384,13 @@ def reverse_complement(seq):
     return ''.join(complement.get(base, base) for base in seq[::-1])
 
 
+def calculate_mismatches(seq1, seq2):
+    """Calculate number of mismatches between two sequences"""
+    if len(seq1) != len(seq2):
+        return float('inf')
+    return sum(1 for a, b in zip(seq1, seq2) if a != b)
+
+
 def match_motifs_to_sample(motif_results, samples, motifs_config):
     """
     Match motif detection results to a sample
@@ -365,9 +439,101 @@ def match_motifs_to_sample(motif_results, samples, motifs_config):
     return None
 
 
+# =============================================================================
+# DEMULTIPLEXING FUNCTIONS
+# =============================================================================
+
+def _create_motif_csv_header(motifs_config):
+    """Create CSV header for motif extraction results."""
+    header_parts = ["read_name", "sequence_length", "orientation"]
+    
+    for direction in ['forward', 'reverse']:
+        for motif_name in motifs_config.get(direction, {}):
+            prefix = f"{direction}_{motif_name}"
+            header_parts.extend([
+                f"{prefix}_found",
+                f"{prefix}_sequence", 
+                f"{prefix}_extracted",
+                f"{prefix}_mismatches",
+                f"{prefix}_position"
+            ])
+    
+    header_parts.extend(["assigned_sample", "assignment_reason"])
+    return ','.join(header_parts) + '\n'
+
+
+def _create_sample_fastq_files(samples, demux_dir):
+    """Create FASTQ output files for each sample."""
+    fastq_files = {}
+    for sample in samples:
+        sample_name = sample['name']
+        fastq_path = os.path.join(demux_dir, f"{sample_name}.fastq")
+        fastq_files[sample_name] = open(fastq_path, 'w')
+    return fastq_files
+
+
+def _process_read_motifs(sequence, motifs_config, search_window):
+    """Process motifs for a single read sequence."""
+    motif_results = {}
+    
+    # Check forward motifs
+    for motif_name, motif_config in motifs_config.get('forward', {}).items():
+        result = find_motif_in_sequence(
+            sequence, 
+            motif_config['sequence'],
+            motif_config['max_mismatches'],
+            search_window
+        )
+        motif_results[f"forward_{motif_name}"] = result
+    
+    # Check reverse motifs (search from end)
+    for motif_name, motif_config in motifs_config.get('reverse', {}).items():
+        search_start = max(0, len(sequence) - search_window)
+        search_seq = sequence[search_start:]
+        result = find_motif_in_sequence(
+            search_seq,
+            motif_config['sequence'],
+            motif_config['max_mismatches'],
+            None
+        )
+        if result['position'] != -1:
+            result['position'] = search_start + result['position']
+        motif_results[f"reverse_{motif_name}"] = result
+    
+    return motif_results
+
+
+def _write_motif_csv_row(csv_file, record, sequence, motif_results, motifs_config, 
+                        assigned_sample, assignment_reason, orientation):
+    """Write motif extraction results to CSV file."""
+    csv_row = [record.id, len(sequence), orientation]
+    
+    for direction in ['forward', 'reverse']:
+        for motif_name in motifs_config.get(direction, {}):
+            key = f"{direction}_{motif_name}"
+            result = motif_results.get(key, {
+                'found': False, 'position': -1, 'extracted': None, 'mismatches': float('inf')
+            })
+            
+            motif_seq = motifs_config[direction][motif_name]['sequence']
+            csv_row.extend([
+                'Yes' if result['found'] else 'No',
+                motif_seq,
+                result['extracted'] or 'None',
+                result['mismatches'] if result['mismatches'] != float('inf') else 'None',
+                result['position'] if result['position'] != -1 else 'None'
+            ])
+    
+    csv_row.extend([assigned_sample or 'None', assignment_reason or 'None'])
+    csv_file.write(','.join(map(str, csv_row)) + '\n')
+
+
 def demultiplex_fastq_motif_based(input_fastq, output_dir, sample_sheet_config):
     """
-    Demultiplex FASTQ reads using motif-based detection
+    Demultiplex FASTQ reads using motif-based detection.
+    
+    This function processes FASTQ reads and assigns them to samples based on
+    the presence of specific motifs in forward and reverse orientations.
     
     Args:
         input_fastq (str): Path to input FASTQ file
@@ -375,7 +541,13 @@ def demultiplex_fastq_motif_based(input_fastq, output_dir, sample_sheet_config):
         sample_sheet_config (dict): Sample sheet configuration from YAML
         
     Returns:
-        dict: Demultiplexing statistics and output files
+        dict: Demultiplexing statistics and output files containing:
+            - total_reads: Total number of reads processed
+            - demultiplexed_reads: Number of reads successfully assigned
+            - unassigned_reads: Number of reads that couldn't be assigned
+            - sample_counts: Dictionary of read counts per sample
+            - output_files: Dictionary of output file paths
+        None if demultiplexing failed
     """
     logger = log()
     logger.log_message(f"Demultiplexing FASTQ reads from {input_fastq} using motif-based detection")
@@ -384,7 +556,7 @@ def demultiplex_fastq_motif_based(input_fastq, output_dir, sample_sheet_config):
         from Bio import SeqIO
         
         # Create demultiplexed output directory
-        demux_dir = os.path.join(output_dir, "demultiplexed_fastq")
+        demux_dir = os.path.join(output_dir, DEMULTIPLEXED_DIR)
         os.makedirs(demux_dir, exist_ok=True)
         
         # Initialize statistics
@@ -397,46 +569,30 @@ def demultiplex_fastq_motif_based(input_fastq, output_dir, sample_sheet_config):
         }
         
         # Create CSV file for motif extraction results
-        csv_output_path = os.path.join(demux_dir, "motif_extraction_results.csv")
+        csv_output_path = os.path.join(demux_dir, MOTIF_CSV_NAME)
         csv_file = open(csv_output_path, 'w')
         
         # Build CSV header
-        header_parts = ["read_name", "sequence_length", "orientation"]
-        
-        # Add columns for each motif
         motifs_config = sample_sheet_config.get('motifs', {})
-        for direction in ['forward', 'reverse']:
-            for motif_name in motifs_config.get(direction, {}):
-                prefix = f"{direction}_{motif_name}"
-                header_parts.extend([
-                    f"{prefix}_found",
-                    f"{prefix}_sequence", 
-                    f"{prefix}_extracted",
-                    f"{prefix}_mismatches",
-                    f"{prefix}_position"
-                ])
-        
-        header_parts.extend(["assigned_sample", "assignment_reason"])
-        csv_file.write(','.join(header_parts) + '\n')
+        csv_file.write(_create_motif_csv_header(motifs_config))
         stats['output_files']['motif_csv'] = csv_output_path
         
         # Create output FASTQ files for each sample
-        fastq_files = {}
         samples = sample_sheet_config.get('samples', [])
+        fastq_files = _create_sample_fastq_files(samples, demux_dir)
         for sample in samples:
             sample_name = sample['name']
             fastq_path = os.path.join(demux_dir, f"{sample_name}.fastq")
-            fastq_files[sample_name] = open(fastq_path, 'w')
             stats['sample_counts'][sample_name] = 0
             stats['output_files'][sample_name] = fastq_path
         
         # Unassigned reads file
-        unassigned_fastq = os.path.join(demux_dir, "unassigned.fastq")
+        unassigned_fastq = os.path.join(demux_dir, f"{UNASSIGNED_NAME}.fastq")
         unassigned_file = open(unassigned_fastq, 'w')
         stats['output_files']['unassigned'] = unassigned_fastq
         
         # Get search window from config
-        search_window = sample_sheet_config.get('parameters', {}).get('search_window', 200)
+        search_window = sample_sheet_config.get('parameters', {}).get('search_window', DEFAULT_SEARCH_WINDOW)
         
         # Process each read
         with open(input_fastq, 'r') as infile:
@@ -449,67 +605,14 @@ def demultiplex_fastq_motif_based(input_fastq, output_dir, sample_sheet_config):
                 orientation = "forward"
                 
                 # Try forward orientation first
-                motif_results = {}
-                
-                # Check forward motifs
-                for motif_name, motif_config in motifs_config.get('forward', {}).items():
-                    result = find_motif_in_sequence(
-                        sequence, 
-                        motif_config['sequence'],
-                        motif_config['max_mismatches'],
-                        search_window
-                    )
-                    motif_results[f"forward_{motif_name}"] = result
-                
-                # Check reverse motifs (search from end)
-                for motif_name, motif_config in motifs_config.get('reverse', {}).items():
-                    # Search from the end of the sequence
-                    search_start = max(0, len(sequence) - search_window)
-                    search_seq = sequence[search_start:]
-                    result = find_motif_in_sequence(
-                        search_seq,
-                        motif_config['sequence'],
-                        motif_config['max_mismatches'],
-                        None  # Don't limit search window again
-                    )
-                    # Adjust position for reverse search
-                    if result['position'] != -1:
-                        result['position'] = search_start + result['position']
-                    motif_results[f"reverse_{motif_name}"] = result
-                
-                # Try to match to samples
+                motif_results = _process_read_motifs(sequence, motifs_config, search_window)
                 sample_match = match_motifs_to_sample(motif_results, samples, motifs_config)
                 
                 # If no match, try reverse complement
                 if not sample_match:
                     orientation = "reverse_complement"
                     rc_sequence = reverse_complement(sequence)
-                    motif_results = {}
-                    
-                    # Check forward motifs on reverse complement
-                    for motif_name, motif_config in motifs_config.get('forward', {}).items():
-                        result = find_motif_in_sequence(
-                            rc_sequence, 
-                            motif_config['sequence'],
-                            motif_config['max_mismatches'],
-                            search_window
-                        )
-                        motif_results[f"forward_{motif_name}"] = result
-                    
-                    # Check reverse motifs on reverse complement (search from end)
-                    for motif_name, motif_config in motifs_config.get('reverse', {}).items():
-                        search_start = max(0, len(rc_sequence) - search_window)
-                        search_seq = rc_sequence[search_start:]
-                        result = find_motif_in_sequence(
-                            search_seq,
-                            motif_config['sequence'],
-                            motif_config['max_mismatches'],
-                            None  # Don't limit search window again
-                        )
-                        if result['position'] != -1:
-                            result['position'] = search_start + result['position']
-                        motif_results[f"reverse_{motif_name}"] = result
-                    
+                    motif_results = _process_read_motifs(rc_sequence, motifs_config, search_window)
                     sample_match = match_motifs_to_sample(motif_results, samples, motifs_config)
                 
                 # Assign to sample if match found
@@ -524,31 +627,12 @@ def demultiplex_fastq_motif_based(input_fastq, output_dir, sample_sheet_config):
                     # Write to unassigned file
                     SeqIO.write(record, unassigned_file, 'fastq')
                     stats['unassigned_reads'] += 1
-                    assigned_sample = "unassigned"
+                    assigned_sample = UNASSIGNED_NAME
                     assignment_reason = "no_motif_match"
                 
                 # Write motif extraction results to CSV
-                csv_row = [record.id, len(sequence), orientation]
-                
-                # Add motif results to CSV
-                for direction in ['forward', 'reverse']:
-                    for motif_name in motifs_config.get(direction, {}):
-                        key = f"{direction}_{motif_name}"
-                        result = motif_results.get(key, {
-                            'found': False, 'position': -1, 'extracted': None, 'mismatches': float('inf')
-                        })
-                        
-                        motif_seq = motifs_config[direction][motif_name]['sequence']
-                        csv_row.extend([
-                            'Yes' if result['found'] else 'No',
-                            motif_seq,
-                            result['extracted'] or 'None',
-                            result['mismatches'] if result['mismatches'] != float('inf') else 'None',
-                            result['position'] if result['position'] != -1 else 'None'
-                        ])
-                
-                csv_row.extend([assigned_sample or 'None', assignment_reason or 'None'])
-                csv_file.write(','.join(map(str, csv_row)) + '\n')
+                _write_motif_csv_row(csv_file, record, sequence, motif_results, motifs_config, 
+                                   assigned_sample, assignment_reason, orientation)
         
         # Close all files
         for file_handle in fastq_files.values():
@@ -573,8 +657,8 @@ def demultiplex_fastq_motif_based(input_fastq, output_dir, sample_sheet_config):
         return None
 
 
-def demultiplex_fastq_reads(input_fastq, output_dir, barcodes_1=None, barcodes_2=None, 
-                           sample_names=None, search_window=200, mismatch_threshold=2):
+def demultiplex_fastq_by_barcodes(input_fastq, output_dir, barcodes_1=None, barcodes_2=None, 
+                           sample_names=None, search_window=DEFAULT_SEARCH_WINDOW, mismatch_threshold=DEFAULT_MISMATCH_THRESHOLD):
     """
     Demultiplex FASTQ reads using fuzzy matching within specified windows
     
@@ -657,16 +741,6 @@ def demultiplex_fastq_reads(input_fastq, output_dir, barcodes_1=None, barcodes_2
         unassigned_file = open(unassigned_fastq, 'w')
         stats['output_files']['unassigned'] = unassigned_fastq
         
-        def calculate_mismatches(seq1, seq2):
-            """Calculate number of mismatches between two sequences"""
-            if len(seq1) != len(seq2):
-                return float('inf')
-            return sum(1 for a, b in zip(seq1, seq2) if a != b)
-        
-        def reverse_complement(seq):
-            """Get reverse complement of DNA sequence"""
-            complement = {'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G', 'N': 'N'}
-            return ''.join(complement.get(base, base) for base in seq[::-1])
         
         def find_best_barcode_match(sequence, barcodes, search_window, is_3p=False):
             """Find the best matching barcode with minimum mismatches within search window"""
@@ -837,8 +911,8 @@ def demultiplex_fastq_reads(input_fastq, output_dir, barcodes_1=None, barcodes_2
         return None
 
 
-def demultiplex_reads_fuzzy(bam_file, output_dir, barcodes_5p=None, barcodes_3p=None, 
-                           sample_names=None, search_window_5p=100, search_window_3p=100, mismatch_threshold=2):
+def demultiplex_bam_by_barcodes(bam_file, output_dir, barcodes_5p=None, barcodes_3p=None, 
+                           sample_names=None, search_window_5p=DEFAULT_SEARCH_WINDOW_5P, search_window_3p=DEFAULT_SEARCH_WINDOW_3P, mismatch_threshold=DEFAULT_MISMATCH_THRESHOLD):
     """
     Demultiplex reads using fuzzy matching within specified windows
     
@@ -907,12 +981,6 @@ def demultiplex_reads_fuzzy(bam_file, output_dir, barcodes_5p=None, barcodes_3p=
         unassigned_bam = os.path.join(demux_dir, "unassigned.bam")
         unassigned_file = pysam.AlignmentFile(unassigned_bam, "wb", template=pysam.AlignmentFile(bam_file, "rb"))
         stats['output_files']['unassigned'] = unassigned_bam
-        
-        def calculate_mismatches(seq1, seq2):
-            """Calculate number of mismatches between two sequences"""
-            if len(seq1) != len(seq2):
-                return float('inf')
-            return sum(1 for a, b in zip(seq1, seq2) if a != b)
         
         def find_best_barcode_match(sequence, barcodes, search_window, is_3p=False):
             """Find the best matching barcode with minimum mismatches within search window"""
@@ -1033,7 +1101,11 @@ def demultiplex_reads_fuzzy(bam_file, output_dir, barcodes_5p=None, barcodes_3p=
         return None
 
 
-def map_individual_sample_no_filter(reference, fastq, output_dir, sample_name, threads=4, verbose=False):
+# =============================================================================
+# MAPPING PIPELINE FUNCTIONS
+# =============================================================================
+
+def map_sample_without_filtering(reference, fastq, output_dir, sample_name, threads=DEFAULT_THREADS, verbose=False):
     """
     Map a single FASTQ file to reference and create BAM and index files (no filtering)
     
@@ -1059,7 +1131,7 @@ def map_individual_sample_no_filter(reference, fastq, output_dir, sample_name, t
     # Step 1: Run minimap2 and sort in one step
     if verbose:
         logger.log_message(f"Step 1: Running minimap2 alignment and sorting for {sample_name}")
-    if not run_minimap2_to_sorted(reference, fastq, temp_bam, threads, verbose):
+    if not align_and_sort_reads(reference, fastq, temp_bam, threads, verbose):
         logger.log_message(f"minimap2 alignment and sorting failed for {sample_name}")
         return None
     
@@ -1086,7 +1158,7 @@ def map_individual_sample_no_filter(reference, fastq, output_dir, sample_name, t
     return output_files
 
 
-def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=1000, min_quality=7, threads=4, verbose=False):
+def map_sample_with_filtering(reference, fastq, output_dir, sample_name, min_length=DEFAULT_MIN_LENGTH, min_quality=DEFAULT_MIN_QUALITY, threads=DEFAULT_THREADS, verbose=False):
     """
     Map a single FASTQ file to reference and create BAM and index files
     
@@ -1122,7 +1194,7 @@ def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=
     # Step 2: Run minimap2 and sort in one step
     if verbose:
         logger.log_message(f"Step 2: Running minimap2 alignment and sorting for {sample_name}")
-    if not run_minimap2_to_sorted(reference, filtered_fastq, temp_bam, threads, verbose):
+    if not align_and_sort_reads(reference, filtered_fastq, temp_bam, threads, verbose):
         logger.log_message(f"minimap2 alignment and sorting failed for {sample_name}")
         return None
     
@@ -1150,7 +1222,7 @@ def map_individual_sample(reference, fastq, output_dir, sample_name, min_length=
     return output_files
 
 
-def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, threads=4,
+def map_pipeline(reference, fastq, output_dir, min_length=DEFAULT_MIN_LENGTH, min_quality=DEFAULT_MIN_QUALITY, threads=DEFAULT_THREADS,
                 sample_sheet=None):
     """
     Complete mapping pipeline with FASTQ demultiplexing support
@@ -1189,7 +1261,7 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
     if not sample_sheet:
         logger.log_message("No sample sheet provided, performing simple mapping")
         sample_name = Path(fastq).stem
-        return map_individual_sample(reference, fastq, output_dir, sample_name, 
+        return map_sample_with_filtering(reference, fastq, output_dir, sample_name, 
                                    min_length, min_quality, threads, verbose=True)
     
     # Step 1: Filter FASTQ reads first
@@ -1224,7 +1296,7 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
             continue
             
         logger.log_message(f"Mapping sample: {sample_name}")
-        result = map_individual_sample_no_filter(
+        result = map_sample_without_filtering(
             reference, fastq_path, output_dir, sample_name,
             threads, verbose=False
         )
@@ -1239,7 +1311,7 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
     unassigned_fastq = demux_stats['output_files'].get('unassigned')
     if unassigned_fastq and os.path.exists(unassigned_fastq) and os.path.getsize(unassigned_fastq) > 0:
         logger.log_message("Mapping unassigned reads")
-        result = map_individual_sample_no_filter(
+        result = map_sample_without_filtering(
             reference, unassigned_fastq, output_dir, "unassigned",
             threads, verbose=False
         )
@@ -1261,6 +1333,10 @@ def map_pipeline(reference, fastq, output_dir, min_length=1000, min_quality=7, t
     
     return output_files
 
+
+# =============================================================================
+# MAIN FUNCTION
+# =============================================================================
 
 def main():
     """Main function for standalone usage"""
