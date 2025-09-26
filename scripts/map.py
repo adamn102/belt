@@ -227,29 +227,77 @@ def create_fastq_from_bam_read(read):
     )
 
 
-def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sample_map):
+def calculate_mismatches(seq1, seq2):
     """
-    Assign a read to a sample based on extracted barcode sequences.
+    Calculate the number of mismatches between two sequences.
+    
+    Args:
+        seq1 (str): First sequence
+        seq2 (str): Second sequence
+        
+    Returns:
+        int: Number of mismatches
+    """
+    if len(seq1) != len(seq2):
+        return max(len(seq1), len(seq2))  # Return max length as penalty for length mismatch
+    
+    mismatches = sum(1 for a, b in zip(seq1, seq2) if a != b)
+    return mismatches
+
+
+def find_best_barcode_match(extracted_barcode, barcodes, max_mismatches):
+    """
+    Find the best matching barcode with mismatch tolerance.
+    
+    Args:
+        extracted_barcode (str): The barcode sequence extracted from the read
+        barcodes (dict): Dictionary mapping barcode names to sequences
+        max_mismatches (int): Maximum number of mismatches allowed
+        
+    Returns:
+        tuple: (best_match_name, mismatch_count) or (None, None) if no good match
+    """
+    best_match = None
+    best_mismatches = max_mismatches + 1
+    
+    for barcode_name, barcode_seq in barcodes.items():
+        mismatches = calculate_mismatches(extracted_barcode, barcode_seq)
+        if mismatches <= max_mismatches and mismatches < best_mismatches:
+            best_match = barcode_name
+            best_mismatches = mismatches
+    
+    if best_match is not None:
+        return best_match, best_mismatches
+    else:
+        return None, None
+
+
+def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sample_map, mismatch_tolerance=DEFAULT_MISMATCH_THRESHOLD):
+    """
+    Assign a read to a sample based on extracted barcode sequences with mismatch tolerance.
     
     Args:
         start_barcode (str): Start barcode sequence (20bp from left soft-clipped region)
         end_barcode (str): End barcode sequence (20bp from right soft-clipped region)
         barcodes (dict): Dictionary mapping barcode names to sequences
         sample_map (dict): Dictionary mapping (start_barcode, end_barcode) to sample names
+        mismatch_tolerance (int): Maximum number of mismatches allowed
         
     Returns:
         tuple: (sample_name, assignment_reason, barcode_info)
     """
-    # Match to known barcodes
-    start_name = next((k for k, v in barcodes.items() if v == start_barcode), None)
-    end_name = next((k for k, v in barcodes.items() if v == end_barcode), None)
+    # Find best matches with mismatch tolerance
+    start_name, start_mismatches = find_best_barcode_match(start_barcode, barcodes, mismatch_tolerance)
+    end_name, end_mismatches = find_best_barcode_match(end_barcode, barcodes, mismatch_tolerance)
     
     if not start_name or not end_name:
         return "unassigned", "barcode_not_found", {
             'start_barcode': start_barcode,
             'end_barcode': end_barcode,
             'start_name': start_name or 'unknown',
-            'end_name': end_name or 'unknown'
+            'end_name': end_name or 'unknown',
+            'start_mismatches': start_mismatches if start_name else None,
+            'end_mismatches': end_mismatches if end_name else None
         }
     
     # Check if this barcode combination exists in sample map
@@ -260,14 +308,18 @@ def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sa
             'start_barcode': start_barcode,
             'end_barcode': end_barcode,
             'start_name': start_name,
-            'end_name': end_name
+            'end_name': end_name,
+            'start_mismatches': start_mismatches,
+            'end_mismatches': end_mismatches
         }
     
     return sample_name, "success", {
         'start_barcode': start_barcode,
         'end_barcode': end_barcode,
         'start_name': start_name,
-        'end_name': end_name
+        'end_name': end_name,
+        'start_mismatches': start_mismatches,
+        'end_mismatches': end_mismatches
     }
 
 
@@ -315,7 +367,7 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
     header = [
         'read_name', 'sequence_length', 'assigned_sample', 'assignment_reason',
         'start_barcode_seq', 'end_barcode_seq', 'start_barcode_name', 'end_barcode_name',
-        'left_soft_clipped', 'right_soft_clipped'
+        'start_mismatches', 'end_mismatches', 'left_soft_clipped', 'right_soft_clipped'
     ]
     csv_writer.writerow(header)
     
@@ -379,11 +431,13 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
                     barcode_info.get('end_barcode', ''),
                     barcode_info.get('start_name', ''),
                     barcode_info.get('end_name', ''),
+                    barcode_info.get('start_mismatches', ''),
+                    barcode_info.get('end_mismatches', ''),
                     left_soft,
                     right_soft
                 ]
             else:
-                row = [read.query_name, len(full_sequence), sample_name, assignment_reason, '', '', '', '', left_soft, right_soft]
+                row = [read.query_name, len(full_sequence), sample_name, assignment_reason, '', '', '', '', '', '', left_soft, right_soft]
             
             csv_writer.writerow(row)
     
