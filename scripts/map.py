@@ -36,7 +36,7 @@ DEFAULT_MIN_LENGTH = 1000
 DEFAULT_MIN_QUALITY = 7
 DEFAULT_THREADS = 4
 DEFAULT_SEARCH_WINDOW = 200
-DEFAULT_MISMATCH_THRESHOLD = 2
+DEFAULT_MISMATCH_THRESHOLD = 6
 
 # Output directory names
 DEMULTIPLEXED_DIR = "demultiplexed_fastq"
@@ -117,7 +117,6 @@ def align_and_sort_reads(reference, fastq, output_sorted_bam, threads=DEFAULT_TH
         ]
         
         # Align with minimap2 (quiet mode)
-        
         with open(temp_bam, 'wb') as bam_file:
             with open(os.devnull, 'w') as devnull:
                 subprocess.run(minimap2_cmd, stdout=bam_file, stderr=devnull, check=True)
@@ -126,7 +125,6 @@ def align_and_sort_reads(reference, fastq, output_sorted_bam, threads=DEFAULT_TH
         sort_cmd = ['samtools', 'sort', '-@', str(threads), temp_bam, '-o', output_sorted_bam]
         
         # Sort BAM file (quiet mode)
-        
         with open(os.devnull, 'w') as devnull:
             subprocess.run(sort_cmd, stderr=devnull, check=True)
         
@@ -166,157 +164,132 @@ def load_sample_sheet_csv(sample_sheet_file):
     return sample_map
 
 
-def compile_barcode_regex(config):
+# Note: compile_barcode_regex function removed - no longer needed for BAM-based approach
+
+
+# Note: assign_read_to_sample function removed - replaced by BAM-based approach
+
+
+# Note: demultiplex_fastq_barcode_based function removed - replaced by BAM-based approach
+
+
+def extract_soft_clipped_sequence(read):
     """
-    Compile regex patterns for barcode detection.
+    Extract soft-clipped sequences from a BAM read.
     
     Args:
-        config (dict): Configuration dictionary with motifs
+        read: pysam AlignedSegment object
         
     Returns:
-        tuple: (start_regex, end_regex) compiled regex objects
+        tuple: (left_soft_clipped, right_soft_clipped, full_sequence)
     """
-    motifs = config["motifs"]
+    if not read.cigartuples:
+        return "", "", read.query_sequence
     
-    # Start barcode pattern: 7bp prefix + 20bp barcode + 10bp suffix
-    start_pattern = rf"{motifs['5p_prefix']}([ACGT]{{20}}){motifs['5p_suffix']}"
-    start_regex = re.compile(start_pattern)
+    left_soft = ""
+    right_soft = ""
     
-    # End barcode pattern: 10bp prefix + 20bp barcode + 7bp suffix  
-    end_pattern = rf"{motifs['3p_prefix']}([ACGT]{{20}}){motifs['3p_suffix']}"
-    end_regex = re.compile(end_pattern)
+    # Check for soft clipping at the beginning
+    if read.cigartuples[0][0] == 4:  # 4 = BAM_CSOFT_CLIP
+        left_soft = read.query_sequence[:read.cigartuples[0][1]]
     
-    return start_regex, end_regex
+    # Check for soft clipping at the end
+    if read.cigartuples[-1][0] == 4:  # 4 = BAM_CSOFT_CLIP
+        right_soft = read.query_sequence[-read.cigartuples[-1][1]:]
+    
+    return left_soft, right_soft, read.query_sequence
 
 
-def calculate_mismatches(seq1, seq2):
+def create_fastq_from_bam_read(read):
     """
-    Calculate the number of mismatches between two sequences.
+    Create a FASTQ record from a BAM read.
     
     Args:
-        seq1 (str): First sequence
-        seq2 (str): Second sequence
+        read: pysam AlignedSegment object
         
     Returns:
-        int: Number of mismatches
+        Bio.SeqIO.SeqRecord: FASTQ record
     """
-    if len(seq1) != len(seq2):
-        return max(len(seq1), len(seq2))  # Return max length as penalty for length mismatch
+    from Bio.Seq import Seq
+    from Bio.SeqRecord import SeqRecord
     
-    mismatches = sum(1 for a, b in zip(seq1, seq2) if a != b)
-    return mismatches
-
-
-def find_best_barcode_match(extracted_barcode, barcodes, max_mismatches):
-    """
-    Find the best matching barcode with mismatch tolerance.
-    
-    Args:
-        extracted_barcode (str): The 20bp barcode sequence extracted from the read
-        barcodes (dict): Dictionary mapping barcode names to sequences
-        max_mismatches (int): Maximum number of mismatches allowed
-        
-    Returns:
-        tuple: (best_match_name, mismatch_count) or (None, None) if no good match
-    """
-    best_match = None
-    best_mismatches = max_mismatches + 1
-    
-    for barcode_name, barcode_seq in barcodes.items():
-        mismatches = calculate_mismatches(extracted_barcode, barcode_seq)
-        if mismatches <= max_mismatches and mismatches < best_mismatches:
-            best_match = barcode_name
-            best_mismatches = mismatches
-    
-    if best_match is not None:
-        return best_match, best_mismatches
+    # Get quality scores (convert from BAM format to FASTQ format)
+    if read.query_qualities:
+        quality_scores = "".join(chr(q + 33) for q in read.query_qualities)
     else:
-        return None, None
+        quality_scores = "I" * len(read.query_sequence)  # Default quality
+    
+    return SeqRecord(
+        Seq(read.query_sequence),
+        id=read.query_name,
+        description="",
+        letter_annotations={"phred_quality": [ord(q) - 33 for q in quality_scores]}
+    )
 
 
-def assign_read_to_sample(sequence, start_regex, end_regex, barcodes, sample_map, mismatch_tolerance=DEFAULT_MISMATCH_THRESHOLD):
+def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sample_map):
     """
-    Assign a read to a sample based on barcode detection with mismatch tolerance.
+    Assign a read to a sample based on extracted barcode sequences.
     
     Args:
-        sequence (str): DNA sequence to analyze
-        start_regex: Compiled regex for start barcode detection
-        end_regex: Compiled regex for end barcode detection
+        start_barcode (str): Start barcode sequence (20bp from left soft-clipped region)
+        end_barcode (str): End barcode sequence (20bp from right soft-clipped region)
         barcodes (dict): Dictionary mapping barcode names to sequences
         sample_map (dict): Dictionary mapping (start_barcode, end_barcode) to sample names
-        mismatch_tolerance (int): Maximum number of mismatches allowed in barcode sequences
         
     Returns:
         tuple: (sample_name, assignment_reason, barcode_info)
     """
-    # Find start and end barcodes (only check first/last ~100 bases for efficiency)
-    start_match = start_regex.search(sequence[:100])
-    end_match = end_regex.search(sequence[-100:])
-    
-    if not start_match or not end_match:
-        return "unassigned", "no_barcode_match", None
-    
-    start_barcode_seq = start_match.group(1)
-    end_barcode_seq = end_match.group(1)
-    
-    # Match to known barcodes with mismatch tolerance
-    start_name, start_mismatches = find_best_barcode_match(start_barcode_seq, barcodes, mismatch_tolerance)
-    end_name, end_mismatches = find_best_barcode_match(end_barcode_seq, barcodes, mismatch_tolerance)
+    # Match to known barcodes
+    start_name = next((k for k, v in barcodes.items() if v == start_barcode), None)
+    end_name = next((k for k, v in barcodes.items() if v == end_barcode), None)
     
     if not start_name or not end_name:
-        return "unassigned", "unknown_barcode", {
-            'start_barcode': start_barcode_seq,
-            'end_barcode': end_barcode_seq,
-            'start_name': start_name,
-            'end_name': end_name,
-            'start_mismatches': start_mismatches,
-            'end_mismatches': end_mismatches
+        return "unassigned", "barcode_not_found", {
+            'start_barcode': start_barcode,
+            'end_barcode': end_barcode,
+            'start_name': start_name or 'unknown',
+            'end_name': end_name or 'unknown'
         }
     
-    # Look up sample
-    sample_name = sample_map.get((start_name, end_name), None)
-    if sample_name:
-        return sample_name, "complete_barcode_match", {
-            'start_barcode': start_barcode_seq,
-            'end_barcode': end_barcode_seq,
+    # Check if this barcode combination exists in sample map
+    sample_name = sample_map.get((start_name, end_name), "unassigned")
+    
+    if sample_name == "unassigned":
+        return "unassigned", "sample_not_found", {
+            'start_barcode': start_barcode,
+            'end_barcode': end_barcode,
             'start_name': start_name,
-            'end_name': end_name,
-            'start_mismatches': start_mismatches,
-            'end_mismatches': end_mismatches
+            'end_name': end_name
         }
-    else:
-        return "unassigned", "no_sample_match", {
-            'start_barcode': start_barcode_seq,
-            'end_barcode': end_barcode_seq,
-            'start_name': start_name,
-            'end_name': end_name,
-            'start_mismatches': start_mismatches,
-            'end_mismatches': end_mismatches
-        }
+    
+    return sample_name, "success", {
+        'start_barcode': start_barcode,
+        'end_barcode': end_barcode,
+        'start_name': start_name,
+        'end_name': end_name
+    }
 
 
-def demultiplex_fastq_barcode_based(input_fastq, output_dir, config_file, sample_sheet_file):
+def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_dir):
     """
-    Demultiplex FASTQ file based on barcode detection using regex patterns.
+    Extract barcodes from soft-clipped regions of mapped reads.
     
     Args:
-        input_fastq (str): Path to input FASTQ file
-        output_dir (str): Path to output directory
+        bam_file (str): Path to mapped BAM file
         config_file (str): Path to config YAML file
         sample_sheet_file (str): Path to sample sheet CSV file
+        output_dir (str): Path to output directory
         
     Returns:
-        dict: Results summary
+        dict: Demultiplexing results
     """
     if not THIRD_PARTY_AVAILABLE:
-        raise ImportError("BioPython is required for FASTQ processing")
+        raise ImportError("BioPython and pysam are required for BAM processing")
     
     # Load configuration and sample sheet
     config = load_config_yaml(config_file)
     sample_map = load_sample_sheet_csv(sample_sheet_file)
-    
-    # Compile regex patterns
-    start_regex, end_regex = compile_barcode_regex(config)
     barcodes = config["barcodes"]
     
     # Create output directories
@@ -342,50 +315,77 @@ def demultiplex_fastq_barcode_based(input_fastq, output_dir, config_file, sample
     header = [
         'read_name', 'sequence_length', 'assigned_sample', 'assignment_reason',
         'start_barcode_seq', 'end_barcode_seq', 'start_barcode_name', 'end_barcode_name',
-        'start_mismatches', 'end_mismatches'
+        'left_soft_clipped', 'right_soft_clipped'
     ]
     csv_writer.writerow(header)
     
-    # Process reads
+    # Process reads from BAM file
     total_reads = 0
     assigned_reads = 0
-    sample_counts = {}  # Track reads per sample
     
-    for record in SeqIO.parse(input_fastq, "fastq"):
-        total_reads += 1
-        sequence = str(record.seq)
-        
-        # Assign read to sample
-        sample_name, assignment_reason, barcode_info = assign_read_to_sample(
-            sequence, start_regex, end_regex, barcodes, sample_map, DEFAULT_MISMATCH_THRESHOLD
-        )
-        
-        # Write to appropriate file
-        if sample_name != "unassigned":
-            if sample_name in sample_files:
-                SeqIO.write(record, sample_files[sample_name], "fastq")
-                assigned_reads += 1
-                # Track sample counts
-                sample_counts[sample_name] = sample_counts.get(sample_name, 0) + 1
-        else:
-            SeqIO.write(record, unassigned_file, "fastq")
-            sample_counts["unassigned"] = sample_counts.get("unassigned", 0) + 1
-        
-        # Write CSV row
-        if barcode_info:
-            row = [
-                record.id, len(sequence), sample_name, assignment_reason,
-                barcode_info.get('start_barcode', ''),
-                barcode_info.get('end_barcode', ''),
-                barcode_info.get('start_name', ''),
-                barcode_info.get('end_name', ''),
-                barcode_info.get('start_mismatches', ''),
-                barcode_info.get('end_mismatches', '')
-            ]
-        else:
-            row = [record.id, len(sequence), sample_name, assignment_reason, '', '', '', '', '', '']
-        
-        csv_writer.writerow(row)
+    # Track assignment reasons
+    assignment_stats = {
+        'success': 0,
+        'sample_not_found': 0,
+        'barcode_not_found': 0
+    }
+    
+    with pysam.AlignmentFile(bam_file, "rb") as bamfile:
+        for read in bamfile:
+            if read.is_unmapped:
+                continue
+                
+            total_reads += 1
+            
+            # Extract soft-clipped sequences
+            left_soft, right_soft, full_sequence = extract_soft_clipped_sequence(read)
+            
+            # Extract 20bp from each soft-clipped region
+            start_barcode = left_soft[-20:] if len(left_soft) >= 20 else left_soft
+            end_barcode = right_soft[:20] if len(right_soft) >= 20 else right_soft
+            
+            # Assign read to sample based on extracted barcodes
+            sample_name, assignment_reason, barcode_info = assign_read_to_sample_from_barcodes(
+                start_barcode, end_barcode, barcodes, sample_map
+            )
+            
+            # Track assignment statistics
+            if assignment_reason == "success":
+                assignment_stats['success'] += 1
+            elif assignment_reason == "sample_not_found":
+                assignment_stats['sample_not_found'] += 1
+            elif assignment_reason == "barcode_not_found":
+                assignment_stats['barcode_not_found'] += 1
+            
+            # Create FASTQ record from BAM read
+            fastq_record = create_fastq_from_bam_read(read)
+            
+            # Write to appropriate file
+            if sample_name != "unassigned":
+                if sample_name in sample_files:
+                    SeqIO.write(fastq_record, sample_files[sample_name], "fastq")
+                    assigned_reads += 1
+            else:
+                SeqIO.write(fastq_record, unassigned_file, "fastq")
+            
+            # Write CSV row
+            if barcode_info:
+                row = [
+                    read.query_name,
+                    len(full_sequence),
+                    sample_name,
+                    assignment_reason,
+                    barcode_info.get('start_barcode', ''),
+                    barcode_info.get('end_barcode', ''),
+                    barcode_info.get('start_name', ''),
+                    barcode_info.get('end_name', ''),
+                    left_soft,
+                    right_soft
+                ]
+            else:
+                row = [read.query_name, len(full_sequence), sample_name, assignment_reason, '', '', '', '', left_soft, right_soft]
+            
+            csv_writer.writerow(row)
     
     # Close files
     for file_handle in sample_files.values():
@@ -404,15 +404,44 @@ def demultiplex_fastq_barcode_based(input_fastq, output_dir, config_file, sample
     print(f"   Output directory: {demux_dir}")
     print()
     
+    # Show assignment reason statistics
+    print(f"🔍 ASSIGNMENT REASON BREAKDOWN:")
+    print(f"-" * 60)
+    print(f"   Success:              {assignment_stats['success']:6,} reads ({assignment_stats['success']/total_reads*100:5.1f}%)")
+    print(f"   Sample not found:      {assignment_stats['sample_not_found']:6,} reads ({assignment_stats['sample_not_found']/total_reads*100:5.1f}%)")
+    print(f"   Barcode not found:    {assignment_stats['barcode_not_found']:6,} reads ({assignment_stats['barcode_not_found']/total_reads*100:5.1f}%)")
+    print()
+    
     # Show sample assignments
     print(f"📋 SAMPLE ASSIGNMENTS:")
     print(f"-" * 60)
+    
+    # Count reads per sample
+    sample_counts = {}
+    for sample_name in unique_samples:
+        sample_file = os.path.join(demux_dir, f"{sample_name}.fastq")
+        if os.path.exists(sample_file):
+            with open(sample_file, 'r') as f:
+                # Count FASTQ records (4 lines per record)
+                line_count = sum(1 for line in f)
+                sample_counts[sample_name] = line_count // 4
+        else:
+            sample_counts[sample_name] = 0
+    
+    # Add unassigned count
+    unassigned_file_path = os.path.join(demux_dir, f"{UNASSIGNED_NAME}.fastq")
+    if os.path.exists(unassigned_file_path):
+        with open(unassigned_file_path, 'r') as f:
+            line_count = sum(1 for line in f)
+            sample_counts["unassigned"] = line_count // 4
+    else:
+        sample_counts["unassigned"] = 0
     
     # Sort samples by read count (descending)
     sorted_samples = sorted(sample_counts.items(), key=lambda x: x[1], reverse=True)
     
     for sample_name, count in sorted_samples:
-        percentage = (count / total_reads) * 100
+        percentage = (count / total_reads) * 100 if total_reads > 0 else 0
         if sample_name == "unassigned":
             print(f"   {sample_name:25} {count:6,} reads ({percentage:5.1f}%)")
         else:
@@ -435,7 +464,7 @@ def demultiplex_fastq_barcode_based(input_fastq, output_dir, config_file, sample
 # =============================================================================
 
 def map_pipeline(reference, fastq, output_dir, min_length=DEFAULT_MIN_LENGTH, min_quality=DEFAULT_MIN_QUALITY, 
-                threads=DEFAULT_THREADS, config_file=None, sample_sheet=None, verbose=True):
+                threads=DEFAULT_THREADS, config_file=None, sample_sheet=None, verbose=False):
     """
     Main mapping pipeline - maps FASTQ files with optional demultiplexing.
     
@@ -469,24 +498,21 @@ def map_pipeline(reference, fastq, output_dir, min_length=DEFAULT_MIN_LENGTH, mi
     filter_fastq(fastq, filtered_fastq, min_length, min_quality, verbose)
     results['filtered_fastq'] = filtered_fastq
     
-    # Step 2: Demultiplex if config and sample sheet provided
+    # Step 2: Map first, then demultiplex if config and sample sheet provided
     if config_file and sample_sheet:
         if verbose:
-            logger.log_message(f"Demultiplexing with config: {config_file} and sample sheet: {sample_sheet}")
+            logger.log_message("Mapping reads to reference first...")
         
-        try:
-            demux_results = demultiplex_fastq_barcode_based(filtered_fastq, output_dir, config_file, sample_sheet)
-            
-            if verbose:
-                logger.log_message(f"Demultiplexing completed: {demux_results['assigned_reads']} assigned, {demux_results['unassigned_reads']} unassigned")
-                logger.log_message(f"Demultiplexed directory: {demux_results['demultiplexed_dir']}")
-        except Exception as e:
-            logger.log_message(f"Error during demultiplexing: {e}")
-            raise
+        # Map the filtered FASTQ to reference
+        output_bam = os.path.join(output_dir, "mapped.bam")
+        align_and_sort_reads(reference, filtered_fastq, output_bam, threads, verbose)
+        results['bam_file'] = output_bam
         
-        # Wait for demultiplexing to complete fully before mapping
         if verbose:
-            logger.log_message("Demultiplexing completed, starting mapping phase...")
+            logger.log_message("Extracting barcodes from soft-clipped regions...")
+        
+        # Extract barcodes from soft-clipped regions and demultiplex
+        demux_results = extract_barcodes_from_bam(output_bam, config_file, sample_sheet, output_dir)
         
         # Map each demultiplexed file
         demux_dir = demux_results['demultiplexed_dir']
@@ -500,11 +526,11 @@ def map_pipeline(reference, fastq, output_dir, min_length=DEFAULT_MIN_LENGTH, mi
             sample_fastq = os.path.join(demux_dir, sample_file)
             sample_bam = os.path.join(output_dir, f"{sample_name}.bam")
             
-        if verbose:
-            logger.log_message(f"Mapping {sample_name}...")
-        
-        align_and_sort_reads(reference, sample_fastq, sample_bam, threads, verbose)
-        results['demultiplexed_files'].append(sample_bam)
+            if verbose:
+                logger.log_message(f"Mapping {sample_name}...")
+            
+            align_and_sort_reads(reference, sample_fastq, sample_bam, threads, verbose)
+            results['demultiplexed_files'].append(sample_bam)
         
         results['demux_results'] = demux_results
     else:
@@ -539,7 +565,7 @@ def main():
     try:
         results = map_pipeline(
             reference=args.reference,
-             fastq=args.fastq,
+            fastq=args.fastq,
             output_dir=args.output_dir,
             min_length=args.min_length,
             min_quality=args.min_quality,
