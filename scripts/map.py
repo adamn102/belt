@@ -36,7 +36,7 @@ DEFAULT_MIN_LENGTH = 1000
 DEFAULT_MIN_QUALITY = 7
 DEFAULT_THREADS = 4
 DEFAULT_SEARCH_WINDOW = 200
-DEFAULT_MISMATCH_THRESHOLD = 5
+DEFAULT_MISMATCH_THRESHOLD = 7
 
 # Output directory names
 DEMULTIPLEXED_DIR = "demultiplexed_fastq"
@@ -272,15 +272,15 @@ def calculate_levenshtein_distance(seq1, seq2):
 
 def find_best_barcode_match(extracted_barcode, barcodes, max_mismatches):
     """
-    Find the best matching barcode with edit distance tolerance.
+    Find the best matching barcode using Levenshtein distance.
     
     Args:
         extracted_barcode (str): The barcode sequence extracted from the read
         barcodes (dict): Dictionary mapping barcode names to sequences
-        max_mismatches (int): Maximum edit distance allowed
+        max_mismatches (int): Maximum Levenshtein distance allowed
         
     Returns:
-        tuple: (best_match_name, edit_distance) or (None, None) if no good match
+        tuple: (best_match_name, levenshtein_distance) or (None, None) if no good match
     """
     best_match = None
     best_distance = max_mismatches + 1
@@ -297,6 +297,47 @@ def find_best_barcode_match(extracted_barcode, barcodes, max_mismatches):
         return None, None
 
 
+def find_motif_in_soft_clipped_and_extract_barcodes(left_soft, right_soft, motif='AAGGTTAA'):
+    """
+    Find the AAGGTTAA motif in soft-clipped regions and extract barcodes around it.
+    
+    Args:
+        left_soft (str): Left soft-clipped sequence
+        right_soft (str): Right soft-clipped sequence
+        motif (str): The motif to search for (default: 'AAGGTTAA')
+        
+    Returns:
+        tuple: (forward_barcode, reverse_barcode, found_in) or (None, None, None) if not found
+    """
+    # Search for exact match in left soft-clipped region
+    motif_pos_left = left_soft.find(motif)
+    if motif_pos_left != -1:
+        # Extract 20bp after the motif for forward barcode
+        forward_start = motif_pos_left + len(motif)
+        forward_barcode = left_soft[forward_start:forward_start + 20] if forward_start + 20 <= len(left_soft) else left_soft[forward_start:]
+        
+        # Extract 20bp before the motif for reverse barcode
+        reverse_end = motif_pos_left
+        reverse_barcode = left_soft[max(0, reverse_end - 20):reverse_end] if reverse_end >= 20 else left_soft[:reverse_end]
+        
+        return forward_barcode, reverse_barcode, 'left'
+    
+    # Search for exact match in right soft-clipped region
+    motif_pos_right = right_soft.find(motif)
+    if motif_pos_right != -1:
+        # Extract 20bp after the motif for forward barcode
+        forward_start = motif_pos_right + len(motif)
+        forward_barcode = right_soft[forward_start:forward_start + 20] if forward_start + 20 <= len(right_soft) else right_soft[forward_start:]
+        
+        # Extract 20bp before the motif for reverse barcode
+        reverse_end = motif_pos_right
+        reverse_barcode = right_soft[max(0, reverse_end - 20):reverse_end] if reverse_end >= 20 else right_soft[:reverse_end]
+        
+        return forward_barcode, reverse_barcode, 'right'
+    
+    return None, None, None
+
+
 def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sample_map, mismatch_tolerance=DEFAULT_MISMATCH_THRESHOLD):
     """
     Assign a read to a sample based on extracted barcode sequences with mismatch tolerance.
@@ -311,9 +352,9 @@ def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sa
     Returns:
         tuple: (sample_name, assignment_reason, barcode_info)
     """
-    # Find best matches with edit distance tolerance
-    start_name, start_distance = find_best_barcode_match(start_barcode, barcodes, mismatch_tolerance)
-    end_name, end_distance = find_best_barcode_match(end_barcode, barcodes, mismatch_tolerance)
+    # Find best matches with mismatch tolerance
+    start_name, start_mismatches = find_best_barcode_match(start_barcode, barcodes, mismatch_tolerance)
+    end_name, end_mismatches = find_best_barcode_match(end_barcode, barcodes, mismatch_tolerance)
     
     if not start_name or not end_name:
         return "unassigned", "barcode_not_found", {
@@ -321,8 +362,8 @@ def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sa
             'end_barcode': end_barcode,
             'start_name': start_name or 'unknown',
             'end_name': end_name or 'unknown',
-            'start_mismatches': start_distance if start_name else None,
-            'end_mismatches': end_distance if end_name else None
+            'start_mismatches': start_mismatches if start_name else None,
+            'end_mismatches': end_mismatches if end_name else None
         }
     
     # Check if this barcode combination exists in sample map
@@ -334,8 +375,8 @@ def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sa
             'end_barcode': end_barcode,
             'start_name': start_name,
             'end_name': end_name,
-            'start_mismatches': start_distance,
-            'end_mismatches': end_distance
+            'start_mismatches': start_mismatches,
+            'end_mismatches': end_mismatches
         }
     
     return sample_name, "success", {
@@ -343,8 +384,8 @@ def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sa
         'end_barcode': end_barcode,
         'start_name': start_name,
         'end_name': end_name,
-        'start_mismatches': start_distance,
-        'end_mismatches': end_distance
+        'start_mismatches': start_mismatches,
+        'end_mismatches': end_mismatches
     }
 
 
@@ -404,8 +445,13 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
     assignment_stats = {
         'success': 0,
         'sample_not_found': 0,
-        'barcode_not_found': 0
+        'barcode_not_found': 0,
+        'motif_success': 0,
+        'motif_not_found': 0
     }
+    
+    # Store unassigned reads for second pass
+    unassigned_reads = []
     
     with pysam.AlignmentFile(bam_file, "rb") as bamfile:
         for read in bamfile:
@@ -443,6 +489,8 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
                     SeqIO.write(fastq_record, sample_files[sample_name], "fastq")
                     assigned_reads += 1
             else:
+                # Store unassigned reads for second pass
+                unassigned_reads.append((read, left_soft, right_soft, full_sequence, barcode_info))
                 SeqIO.write(fastq_record, unassigned_file, "fastq")
             
             # Write CSV row
@@ -466,6 +514,51 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
             
             csv_writer.writerow(row)
     
+    # Second pass: Process unassigned reads looking for AAGGTTAA motif
+    print(f"\n🔍 Second pass: Processing {len(unassigned_reads)} unassigned reads for AAGGTTAA motif...")
+    
+    for read, left_soft, right_soft, full_sequence, original_barcode_info in unassigned_reads:
+        # Look for AAGGTTAA motif in soft-clipped regions (exact match)
+        forward_barcode, reverse_barcode, found_in = find_motif_in_soft_clipped_and_extract_barcodes(left_soft, right_soft)
+        
+        if forward_barcode and reverse_barcode:
+            # Try to assign using motif-based barcodes
+            sample_name, assignment_reason, barcode_info = assign_read_to_sample_from_barcodes(
+                forward_barcode, reverse_barcode, barcodes, sample_map
+            )
+            
+            if sample_name != "unassigned":
+                # Successfully assigned using motif
+                assignment_stats['motif_success'] += 1
+                assignment_stats['barcode_not_found'] -= 1  # Remove from original count
+                
+                # Move read from unassigned to assigned sample
+                fastq_record = create_fastq_from_bam_read(read)
+                if sample_name in sample_files:
+                    SeqIO.write(fastq_record, sample_files[sample_name], "fastq")
+                    assigned_reads += 1
+                
+                # Update CSV with new assignment
+                updated_row = [
+                    read.query_name,
+                    len(full_sequence),
+                    sample_name,
+                    f"motif_{assignment_reason}",
+                    barcode_info.get('start_barcode', ''),
+                    barcode_info.get('end_barcode', ''),
+                    barcode_info.get('start_name', ''),
+                    barcode_info.get('end_name', ''),
+                    barcode_info.get('start_mismatches', ''),
+                    barcode_info.get('end_mismatches', ''),
+                    left_soft,
+                    right_soft
+                ]
+                csv_writer.writerow(updated_row)
+            else:
+                assignment_stats['motif_not_found'] += 1
+        else:
+            assignment_stats['motif_not_found'] += 1
+    
     # Close files
     for file_handle in sample_files.values():
         file_handle.close()
@@ -486,9 +579,11 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
     # Show assignment reason statistics
     print(f"🔍 ASSIGNMENT REASON BREAKDOWN:")
     print(f"-" * 60)
-    print(f"   Success:              {assignment_stats['success']:6,} reads ({assignment_stats['success']/total_reads*100:5.1f}%)")
+    print(f"   Success (soft-clip):   {assignment_stats['success']:6,} reads ({assignment_stats['success']/total_reads*100:5.1f}%)")
+    print(f"   Success (motif):      {assignment_stats['motif_success']:6,} reads ({assignment_stats['motif_success']/total_reads*100:5.1f}%)")
     print(f"   Sample not found:      {assignment_stats['sample_not_found']:6,} reads ({assignment_stats['sample_not_found']/total_reads*100:5.1f}%)")
     print(f"   Barcode not found:    {assignment_stats['barcode_not_found']:6,} reads ({assignment_stats['barcode_not_found']/total_reads*100:5.1f}%)")
+    print(f"   Motif not found:      {assignment_stats['motif_not_found']:6,} reads ({assignment_stats['motif_not_found']/total_reads*100:5.1f}%)")
     print()
     
     # Show sample assignments
