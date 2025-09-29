@@ -538,14 +538,14 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
                     SeqIO.write(fastq_record, sample_files[sample_name], "fastq")
                     assigned_reads += 1
                 
-                # Update CSV with new assignment
+                # Update CSV with new assignment - show the motif-based barcodes that were actually used
                 updated_row = [
                     read.query_name,
                     len(full_sequence),
                     sample_name,
                     f"motif_{assignment_reason}",
-                    barcode_info.get('start_barcode', ''),
-                    barcode_info.get('end_barcode', ''),
+                    forward_barcode,  # The motif-based forward barcode that was actually used
+                    reverse_barcode,  # The motif-based reverse barcode that was actually used
                     barcode_info.get('start_name', ''),
                     barcode_info.get('end_name', ''),
                     barcode_info.get('start_mismatches', ''),
