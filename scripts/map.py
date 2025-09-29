@@ -454,8 +454,6 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
         'motif_not_found': 0
     }
     
-    # Store unassigned reads for second pass
-    unassigned_reads = []
     
     with pysam.AlignmentFile(bam_file, "rb") as bamfile:
         for read in bamfile:
@@ -476,9 +474,26 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
                 start_barcode, end_barcode, barcodes, sample_map
             )
             
+            # If assignment failed, try motif-based extraction
+            if sample_name == "unassigned" and assignment_reason == "barcode_not_found":
+                # Look for AAGGTTAA motif in soft-clipped regions
+                forward_barcode, reverse_barcode, found_in = find_motif_in_soft_clipped_and_extract_barcodes(left_soft, right_soft)
+                
+                if forward_barcode and reverse_barcode:
+                    # Try to assign using motif-based barcodes
+                    sample_name, assignment_reason, barcode_info = assign_read_to_sample_from_barcodes(
+                        forward_barcode, reverse_barcode, barcodes, sample_map
+                    )
+                    
+                    # Update assignment reason to indicate motif-based assignment
+                    if sample_name != "unassigned":
+                        assignment_reason = f"motif_{assignment_reason}"
+            
             # Track assignment statistics
             if assignment_reason == "success":
                 assignment_stats['success'] += 1
+            elif assignment_reason.startswith("motif_"):
+                assignment_stats['motif_success'] += 1
             elif assignment_reason == "sample_not_found":
                 assignment_stats['sample_not_found'] += 1
             elif assignment_reason == "barcode_not_found":
@@ -493,19 +508,27 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
                     SeqIO.write(fastq_record, sample_files[sample_name], "fastq")
                     assigned_reads += 1
             else:
-                # Store unassigned reads for second pass
-                unassigned_reads.append((read, left_soft, right_soft, full_sequence, barcode_info))
                 SeqIO.write(fastq_record, unassigned_file, "fastq")
             
-            # Store CSV row for later writing (to handle second pass updates)
+            # Write CSV row - use the barcodes that were actually used for assignment
             if barcode_info:
+                # Determine which barcodes were used based on assignment method
+                if assignment_reason.startswith("motif_"):
+                    # Motif-based assignment - use the motif-extracted barcodes
+                    actual_start_barcode = forward_barcode if 'forward_barcode' in locals() else barcode_info.get('start_barcode', '')
+                    actual_end_barcode = reverse_barcode if 'reverse_barcode' in locals() else barcode_info.get('end_barcode', '')
+                else:
+                    # Standard assignment - use the original extracted barcodes
+                    actual_start_barcode = barcode_info.get('start_barcode', '')
+                    actual_end_barcode = barcode_info.get('end_barcode', '')
+                
                 row = [
                     read.query_name,
                     len(full_sequence),
                     sample_name,
                     assignment_reason,
-                    barcode_info.get('start_barcode', ''),
-                    barcode_info.get('end_barcode', ''),
+                    actual_start_barcode,
+                    actual_end_barcode,
                     barcode_info.get('start_name', ''),
                     barcode_info.get('end_name', ''),
                     barcode_info.get('start_mismatches', ''),
@@ -516,61 +539,8 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
             else:
                 row = [read.query_name, len(full_sequence), sample_name, assignment_reason, '', '', '', '', '', '', left_soft, right_soft]
             
-            csv_rows.append(row)
+            csv_writer.writerow(row)
     
-    # Second pass: Process unassigned reads looking for AAGGTTAA motif
-    print(f"\n🔍 Second pass: Processing {len(unassigned_reads)} unassigned reads for AAGGTTAA motif...")
-    
-    for read, left_soft, right_soft, full_sequence, original_barcode_info in unassigned_reads:
-        # Look for AAGGTTAA motif in soft-clipped regions (exact match)
-        forward_barcode, reverse_barcode, found_in = find_motif_in_soft_clipped_and_extract_barcodes(left_soft, right_soft)
-        
-        if forward_barcode and reverse_barcode:
-            # Try to assign using motif-based barcodes
-            # Note: forward_barcode is the sequence AFTER the motif (start_barcode)
-            #       reverse_barcode is the sequence BEFORE the motif (end_barcode)
-            sample_name, assignment_reason, barcode_info = assign_read_to_sample_from_barcodes(
-                forward_barcode, reverse_barcode, barcodes, sample_map
-            )
-            
-            if sample_name != "unassigned":
-                # Successfully assigned using motif
-                assignment_stats['motif_success'] += 1
-                assignment_stats['barcode_not_found'] -= 1  # Remove from original count
-                
-                # Move read from unassigned to assigned sample
-                fastq_record = create_fastq_from_bam_read(read)
-                if sample_name in sample_files:
-                    SeqIO.write(fastq_record, sample_files[sample_name], "fastq")
-                    assigned_reads += 1
-                
-                # Update the existing CSV row with new assignment
-                for i, row in enumerate(csv_rows):
-                    if row[0] == read.query_name:  # Match by read name
-                        # Update the row with motif-based assignment
-                        csv_rows[i] = [
-                            read.query_name,
-                            len(full_sequence),
-                            sample_name,
-                            f"motif_{assignment_reason}",
-                            forward_barcode,  # The motif-based start barcode (after motif)
-                            reverse_barcode,  # The motif-based end barcode (before motif)
-                            barcode_info.get('start_name', ''),
-                            barcode_info.get('end_name', ''),
-                            barcode_info.get('start_mismatches', ''),
-                            barcode_info.get('end_mismatches', ''),
-                            left_soft,
-                            right_soft
-                        ]
-                        break
-            else:
-                assignment_stats['motif_not_found'] += 1
-        else:
-            assignment_stats['motif_not_found'] += 1
-    
-    # Write all CSV rows at the end (after second pass updates)
-    for row in csv_rows:
-        csv_writer.writerow(row)
     
     # Close files
     for file_handle in sample_files.values():
