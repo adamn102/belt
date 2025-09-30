@@ -321,48 +321,6 @@ def checkMotif(sequence, side):
             return None
 
 
-def find_motif_in_soft_clipped_and_extract_barcodes(left_soft, right_soft, motif='AAGGTTAA'):
-    """
-    Find the AAGGTTAA motif in soft-clipped regions and extract barcodes around it.
-    Extracts exactly 20bp around the motif (20bp before and 20bp after).
-    
-    Args:
-        left_soft (str): Left soft-clipped sequence
-        right_soft (str): Right soft-clipped sequence
-        motif (str): The motif to search for (default: 'AAGGTTAA')
-        
-    Returns:
-        tuple: (forward_barcode, reverse_barcode, found_in) or (None, None, None) if not found
-    """
-    # Search for exact match in left soft-clipped region
-    motif_pos_left = left_soft.find(motif)
-    if motif_pos_left != -1:
-        # Extract 20bp after the motif for forward barcode
-        forward_start = motif_pos_left + len(motif)
-        forward_barcode = left_soft[forward_start:forward_start + 20] if forward_start + 20 <= len(left_soft) else left_soft[forward_start:]
-        
-        # Extract 20bp before the motif for reverse barcode
-        reverse_end = motif_pos_left
-        reverse_barcode = left_soft[max(0, reverse_end - 20):reverse_end] if reverse_end >= 20 else left_soft[:reverse_end]
-        
-        return forward_barcode, reverse_barcode, 'left'
-    
-    # Search for exact match in right soft-clipped region
-    motif_pos_right = right_soft.find(motif)
-    if motif_pos_right != -1:
-        # Extract 20bp after the motif for forward barcode
-        forward_start = motif_pos_right + len(motif)
-        forward_barcode = right_soft[forward_start:forward_start + 20] if forward_start + 20 <= len(right_soft) else right_soft[forward_start:]
-        
-        # Extract 20bp before the motif for reverse barcode
-        reverse_end = motif_pos_right
-        reverse_barcode = right_soft[max(0, reverse_end - 20):reverse_end] if reverse_end >= 20 else right_soft[:reverse_end]
-        
-        return forward_barcode, reverse_barcode, 'right'
-    
-    return None, None, None
-
-
 def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sample_map, mismatch_tolerance=DEFAULT_MISMATCH_THRESHOLD):
     """
     Assign a read to a sample based on extracted barcode sequences with mismatch tolerance.
@@ -468,6 +426,7 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
     # Process reads from BAM file
     total_reads = 0
     assigned_reads = 0
+    reads_without_softclip = 0
     
     # Track assignment reasons
     assignment_stats = {
@@ -476,6 +435,15 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
         'barcode_not_found': 0,
         'motif_success': 0,
         'motif_not_found': 0
+    }
+    
+    # Track barcode detection statistics
+    barcode_stats = {
+        'both_barcodes': 0,
+        'only_5p_barcode': 0,
+        'only_3p_barcode': 0,
+        'no_barcodes': 0,
+        'no_softclip': 0
     }
     
     
@@ -490,14 +458,22 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
             # Extract soft-clipped sequences
             left_soft, right_soft, full_sequence = extract_soft_clipped_sequence(read)
             
+            # Check if read has any soft-clipped regions
+            has_softclip = len(left_soft) > 0 or len(right_soft) > 0
+            if not has_softclip:
+                reads_without_softclip += 1
+                barcode_stats['no_softclip'] += 1
+                # Skip reads without soft-clipped regions
+                continue
+            
             # Extract 20bp from each soft-clipped region (end of left, beginning of right)
             forward_barcode = left_soft[-20:] if len(left_soft) >= 20 else left_soft
             reverse_barcode = right_soft[:20] if len(right_soft) >= 20 else right_soft
-            
+
             # Try to find matches using Levenshtein distance for initial extraction
             forward_match, forward_distance = find_best_barcode_match(forward_barcode, barcodes, max_mismatches=DEFAULT_MISMATCH_THRESHOLD)
             reverse_match, reverse_distance = find_best_barcode_match(reverse_barcode, barcodes, max_mismatches=DEFAULT_MISMATCH_THRESHOLD)
-            
+
             # If either barcode doesn't match well enough, try motif-based extraction
             if not forward_match or not reverse_match:
                 # Try motif extraction for barcodes that didn't match
@@ -506,7 +482,7 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
                     if motif_forward:
                         # Check if motif-extracted forward barcode matches with Levenshtein distance
                         motif_forward_match, motif_forward_distance = find_best_barcode_match(motif_forward, barcodes, max_mismatches=DEFAULT_MISMATCH_THRESHOLD)
-                        if motif_forward_match:
+                        if True:
                             forward_barcode = motif_forward
                             forward_match = motif_forward_match
                             forward_distance = motif_forward_distance
@@ -515,10 +491,23 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
                     if motif_reverse:
                         # Check if motif-extracted reverse barcode matches with Levenshtein distance
                         motif_reverse_match, motif_reverse_distance = find_best_barcode_match(motif_reverse, barcodes, max_mismatches=DEFAULT_MISMATCH_THRESHOLD)
-                        if motif_reverse_match:
+                        if True:
                             reverse_barcode = motif_reverse
                             reverse_match = motif_reverse_match
                             reverse_distance = motif_reverse_distance
+            # Track barcode detection patterns
+            has_5p = (forward_match is not None) and (forward_match != '')
+            has_3p = (reverse_match is not None) and (reverse_match != '')
+            
+            if has_5p and has_3p:
+                barcode_stats['both_barcodes'] += 1
+            elif has_5p and not has_3p:
+                barcode_stats['only_5p_barcode'] += 1
+            elif not has_5p and has_3p:
+                barcode_stats['only_3p_barcode'] += 1
+            else:
+                barcode_stats['no_barcodes'] += 1
+            
             # Now assign to sample using the final barcodes
             sample_name, assignment_reason, barcode_info = assign_read_to_sample_from_barcodes(
                 forward_barcode, reverse_barcode, barcodes, sample_map
@@ -583,24 +572,37 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
     csv_file.close()
     
     # Print demultiplexing statistics (always show)
-    print(f"\n" + "="*60)
+    print(f"\n" + "="*80)
     print(f"📊 DEMULTIPLEXING STATISTICS")
-    print(f"="*60)
+    print(f"="*80)
     print(f"   Total reads processed: {total_reads:,}")
-    print(f"   Successfully assigned: {assigned_reads:,} ({assigned_reads/total_reads*100:.1f}%)")
-    print(f"   Unassigned reads: {total_reads - assigned_reads:,} ({(total_reads - assigned_reads)/total_reads*100:.1f}%)")
+    print(f"   Reads without soft-clip: {reads_without_softclip:,} ({reads_without_softclip/total_reads*100:.1f}%)")
+    print(f"   Reads with soft-clip: {total_reads - reads_without_softclip:,} ({(total_reads - reads_without_softclip)/total_reads*100:.1f}%)")
+    print(f"   Successfully assigned: {assigned_reads:,} ({assigned_reads/(total_reads - reads_without_softclip)*100:.1f}% of soft-clipped reads)")
+    print(f"   Unassigned reads: {(total_reads - reads_without_softclip) - assigned_reads:,} ({((total_reads - reads_without_softclip) - assigned_reads)/(total_reads - reads_without_softclip)*100:.1f}% of soft-clipped reads)")
     print(f"   Unique samples found: {len(unique_samples)}")
     print(f"   Output directory: {demux_dir}")
     print()
     
+    # Show barcode detection breakdown
+    softclip_reads = total_reads - reads_without_softclip
+    print(f"🔍 BARCODE DETECTION BREAKDOWN (reads with soft-clip only):")
+    print(f"-" * 80)
+    print(f"   Both 5' and 3' barcodes found:     {barcode_stats['both_barcodes']:6,} reads ({barcode_stats['both_barcodes']/softclip_reads*100:5.1f}%)")
+    print(f"   Only 5' barcode found:            {barcode_stats['only_5p_barcode']:6,} reads ({barcode_stats['only_5p_barcode']/softclip_reads*100:5.1f}%)")
+    print(f"   Only 3' barcode found:            {barcode_stats['only_3p_barcode']:6,} reads ({barcode_stats['only_3p_barcode']/softclip_reads*100:5.1f}%)")
+    print(f"   No barcodes found:                {barcode_stats['no_barcodes']:6,} reads ({barcode_stats['no_barcodes']/softclip_reads*100:5.1f}%)")
+    print(f"   No soft-clip regions:             {barcode_stats['no_softclip']:6,} reads ({barcode_stats['no_softclip']/total_reads*100:5.1f}%)")
+    print()
+    
     # Show assignment reason statistics
-    print(f"🔍 ASSIGNMENT REASON BREAKDOWN:")
-    print(f"-" * 60)
-    print(f"   Success (soft-clip):   {assignment_stats['success']:6,} reads ({assignment_stats['success']/total_reads*100:5.1f}%)")
-    print(f"   Success (motif):      {assignment_stats['motif_success']:6,} reads ({assignment_stats['motif_success']/total_reads*100:5.1f}%)")
-    print(f"   Sample not found:      {assignment_stats['sample_not_found']:6,} reads ({assignment_stats['sample_not_found']/total_reads*100:5.1f}%)")
-    print(f"   Barcode not found:    {assignment_stats['barcode_not_found']:6,} reads ({assignment_stats['barcode_not_found']/total_reads*100:5.1f}%)")
-    print(f"   Motif not found:      {assignment_stats['motif_not_found']:6,} reads ({assignment_stats['motif_not_found']/total_reads*100:5.1f}%)")
+    print(f"📋 ASSIGNMENT REASON BREAKDOWN:")
+    print(f"-" * 80)
+    print(f"   Success (soft-clip):   {assignment_stats['success']:6,} reads ({assignment_stats['success']/softclip_reads*100:5.1f}%)")
+    print(f"   Success (motif):      {assignment_stats['motif_success']:6,} reads ({assignment_stats['motif_success']/softclip_reads*100:5.1f}%)")
+    print(f"   Sample not found:      {assignment_stats['sample_not_found']:6,} reads ({assignment_stats['sample_not_found']/softclip_reads*100:5.1f}%)")
+    print(f"   Barcode not found:    {assignment_stats['barcode_not_found']:6,} reads ({assignment_stats['barcode_not_found']/softclip_reads*100:5.1f}%)")
+    print(f"   Motif not found:      {assignment_stats['motif_not_found']:6,} reads ({assignment_stats['motif_not_found']/softclip_reads*100:5.1f}%)")
     print()
     
     # Show sample assignments
@@ -644,7 +646,10 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
     return {
         'total_reads': total_reads,
         'assigned_reads': assigned_reads,
-        'unassigned_reads': total_reads - assigned_reads,
+        'unassigned_reads': (total_reads - reads_without_softclip) - assigned_reads,
+        'reads_without_softclip': reads_without_softclip,
+        'barcode_stats': barcode_stats,
+        'assignment_stats': assignment_stats,
         'demultiplexed_dir': demux_dir,
         'unique_samples': list(unique_samples)
     }
