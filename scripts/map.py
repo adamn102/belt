@@ -164,15 +164,6 @@ def load_sample_sheet_csv(sample_sheet_file):
     return sample_map
 
 
-# Note: compile_barcode_regex function removed - no longer needed for BAM-based approach
-
-
-# Note: assign_read_to_sample function removed - replaced by BAM-based approach
-
-
-# Note: demultiplex_fastq_barcode_based function removed - replaced by BAM-based approach
-
-
 def extract_soft_clipped_sequence(read):
     """
     Extract soft-clipped sequences from a BAM read.
@@ -295,6 +286,39 @@ def find_best_barcode_match(extracted_barcode, barcodes, max_mismatches):
         return best_match, best_distance
     else:
         return None, None
+
+
+def checkMotif(sequence, side):
+    """
+    Extract barcode using motif-based logic.
+    
+    Args:
+        sequence (str): The soft-clipped sequence to search
+        side (str): "left" or "right" to determine extraction logic
+        
+    Returns:
+        str or None: Extracted barcode sequence or None if no motif found
+    """
+    if side == "left":
+        motif_index = sequence.find("AAGGTTAA")
+        if motif_index != -1:
+            remaining_seq = sequence[motif_index + 8:]
+            if len(remaining_seq) >= 20:
+                return remaining_seq[:20]
+            else:
+                return remaining_seq + 'N' * (20 - len(remaining_seq))
+        else:
+            return None
+    elif side == "right":
+        motif_index = sequence.rfind("AAGGTTAA")
+        if motif_index != -1:
+            remaining_seq = sequence[:motif_index]
+            if len(remaining_seq) >= 20:
+                return remaining_seq[-20:]
+            else:
+                return 'N' * (20 - len(remaining_seq)) + remaining_seq
+        else:
+            return None
 
 
 def find_motif_in_soft_clipped_and_extract_barcodes(left_soft, right_soft, motif='AAGGTTAA'):
@@ -461,33 +485,52 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
                 continue
                 
             total_reads += 1
-            
+            motif_forward = None
+            motif_reverse = None
             # Extract soft-clipped sequences
             left_soft, right_soft, full_sequence = extract_soft_clipped_sequence(read)
             
-            # Extract 20bp from each soft-clipped region
-            start_barcode = left_soft[-20:] if len(left_soft) >= 20 else left_soft
-            end_barcode = right_soft[:20] if len(right_soft) >= 20 else right_soft
+            # Extract 20bp from each soft-clipped region (end of left, beginning of right)
+            forward_barcode = left_soft[-20:] if len(left_soft) >= 20 else left_soft
+            reverse_barcode = right_soft[:20] if len(right_soft) >= 20 else right_soft
             
-            # Assign read to sample based on extracted barcodes
+            # Try to find matches using Levenshtein distance for initial extraction
+            forward_match, forward_distance = find_best_barcode_match(forward_barcode, barcodes, max_mismatches=DEFAULT_MISMATCH_THRESHOLD)
+            reverse_match, reverse_distance = find_best_barcode_match(reverse_barcode, barcodes, max_mismatches=DEFAULT_MISMATCH_THRESHOLD)
+            
+            # If either barcode doesn't match well enough, try motif-based extraction
+            if not forward_match or not reverse_match:
+                # Try motif extraction for barcodes that didn't match
+                if not forward_match:
+                    motif_forward = checkMotif(left_soft, "left")
+                    if motif_forward:
+                        # Check if motif-extracted forward barcode matches with Levenshtein distance
+                        motif_forward_match, motif_forward_distance = find_best_barcode_match(motif_forward, barcodes, max_mismatches=DEFAULT_MISMATCH_THRESHOLD)
+                        if motif_forward_match:
+                            forward_barcode = motif_forward
+                            forward_match = motif_forward_match
+                            forward_distance = motif_forward_distance
+                if not reverse_match:
+                    motif_reverse = checkMotif(right_soft, "right")
+                    if motif_reverse:
+                        # Check if motif-extracted reverse barcode matches with Levenshtein distance
+                        motif_reverse_match, motif_reverse_distance = find_best_barcode_match(motif_reverse, barcodes, max_mismatches=DEFAULT_MISMATCH_THRESHOLD)
+                        if motif_reverse_match:
+                            reverse_barcode = motif_reverse
+                            reverse_match = motif_reverse_match
+                            reverse_distance = motif_reverse_distance
+            # Now assign to sample using the final barcodes
             sample_name, assignment_reason, barcode_info = assign_read_to_sample_from_barcodes(
-                start_barcode, end_barcode, barcodes, sample_map
+                forward_barcode, reverse_barcode, barcodes, sample_map
             )
             
-            # If assignment failed, try motif-based extraction
-            if sample_name == "unassigned" and assignment_reason == "barcode_not_found":
-                # Look for AAGGTTAA motif in soft-clipped regions
-                forward_barcode, reverse_barcode, found_in = find_motif_in_soft_clipped_and_extract_barcodes(left_soft, right_soft)
-                
-                if forward_barcode and reverse_barcode:
-                    # Try to assign using motif-based barcodes
-                    sample_name, assignment_reason, barcode_info = assign_read_to_sample_from_barcodes(
-                        forward_barcode, reverse_barcode, barcodes, sample_map
-                    )
-                    
-                    # Update assignment reason to indicate motif-based assignment
-                    if sample_name != "unassigned":
-                        assignment_reason = f"motif_{assignment_reason}"
+            # Update assignment reason if motif extraction was used
+            original_forward = left_soft[-20:] if len(left_soft) >= 20 else left_soft
+            original_reverse = right_soft[:20] if len(right_soft) >= 20 else right_soft
+            
+            if (forward_barcode != original_forward) or (reverse_barcode != original_reverse):
+                if sample_name != "unassigned":
+                    assignment_reason = f"motif_{assignment_reason}"
             
             # Track assignment statistics
             if assignment_reason == "success":
@@ -512,23 +555,14 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
             
             # Write CSV row - use the barcodes that were actually used for assignment
             if barcode_info:
-                # Determine which barcodes were used based on assignment method
-                if assignment_reason.startswith("motif_"):
-                    # Motif-based assignment - use the motif-extracted barcodes
-                    actual_start_barcode = forward_barcode if 'forward_barcode' in locals() else barcode_info.get('start_barcode', '')
-                    actual_end_barcode = reverse_barcode if 'reverse_barcode' in locals() else barcode_info.get('end_barcode', '')
-                else:
-                    # Standard assignment - use the original extracted barcodes
-                    actual_start_barcode = barcode_info.get('start_barcode', '')
-                    actual_end_barcode = barcode_info.get('end_barcode', '')
-                
+                # Use the actual sequences that were used for assignment (forward_barcode and reverse_barcode)
                 row = [
                     read.query_name,
                     len(full_sequence),
                     sample_name,
                     assignment_reason,
-                    actual_start_barcode,
-                    actual_end_barcode,
+                    motif_forward,  # The actual sequence that was used for assignment
+                    motif_reverse,  # The actual sequence that was used for assignment
                     barcode_info.get('start_name', ''),
                     barcode_info.get('end_name', ''),
                     barcode_info.get('start_mismatches', ''),
