@@ -218,6 +218,100 @@ def create_fastq_from_bam_read(read):
     )
 
 
+def reorganize_bam_by_samples(bam_file, sample_assignments, output_dir, threads=DEFAULT_THREADS, verbose=True):
+    """
+    Reorganize a BAM file into separate sample BAM files based on read assignments.
+    
+    Args:
+        bam_file (str): Path to input BAM file
+        sample_assignments (dict): Dictionary mapping read names to sample names
+        output_dir (str): Path to output directory
+        threads (int): Number of threads to use
+        verbose (bool): Print progress messages
+        
+    Returns:
+        dict: Paths to output BAM files and statistics
+    """
+    if not THIRD_PARTY_AVAILABLE:
+        raise ImportError("pysam is required for BAM processing")
+    
+    if verbose:
+        logger.log_message(f"Reorganizing BAM file: {bam_file}")
+    
+    # Get unique sample names
+    unique_samples = set(sample_assignments.values())
+    
+    # Create output BAM files
+    sample_bam_files = {}
+    sample_writers = {}
+    
+    for sample_name in unique_samples:
+        output_bam = os.path.join(output_dir, f"{sample_name}.bam")
+        sample_bam_files[sample_name] = output_bam
+        
+        # Create BAM writer for each sample
+        with pysam.AlignmentFile(bam_file, "rb") as input_bam:
+            header = input_bam.header.copy()
+            sample_writers[sample_name] = pysam.AlignmentFile(output_bam, "wb", header=header)
+    
+    # Process reads and write to appropriate sample files
+    read_counts = {sample: 0 for sample in unique_samples}
+    total_reads = 0
+    
+    with pysam.AlignmentFile(bam_file, "rb") as input_bam:
+        for read in input_bam:
+            if read.is_unmapped:
+                continue
+                
+            total_reads += 1
+            read_name = read.query_name
+            
+            # Get sample assignment for this read
+            sample_name = sample_assignments.get(read_name, "unassigned")
+            
+            # Write to appropriate sample BAM file
+            if sample_name in sample_writers:
+                sample_writers[sample_name].write(read)
+                read_counts[sample_name] += 1
+    
+    # Close all BAM writers
+    for writer in sample_writers.values():
+        writer.close()
+    
+    # Sort and index all output BAM files
+    if verbose:
+        logger.log_message("Sorting and indexing BAM files...")
+    
+    for sample_name, bam_path in sample_bam_files.items():
+        if read_counts[sample_name] > 0:  # Only process files with reads
+            # Sort BAM file
+            sorted_bam = bam_path.replace('.bam', '_sorted.bam')
+            sort_cmd = ['samtools', 'sort', '-@', str(threads), bam_path, '-o', sorted_bam]
+            
+            with open(os.devnull, 'w') as devnull:
+                subprocess.run(sort_cmd, stderr=devnull, check=True)
+            
+            # Replace unsorted with sorted
+            os.replace(sorted_bam, bam_path)
+            
+            # Index BAM file
+            index_cmd = ['samtools', 'index', bam_path]
+            with open(os.devnull, 'w') as devnull:
+                subprocess.run(index_cmd, stderr=devnull, check=True)
+    
+    if verbose:
+        logger.log_message(f"Reorganized {total_reads:,} reads into {len(unique_samples)} sample BAM files")
+        for sample_name, count in read_counts.items():
+            if count > 0:
+                logger.log_message(f"  {sample_name}: {count:,} reads")
+    
+    return {
+        'sample_bam_files': sample_bam_files,
+        'read_counts': read_counts,
+        'total_reads': total_reads
+    }
+
+
 def calculate_levenshtein_distance(seq1, seq2):
     """
     Calculate the Levenshtein distance (edit distance) between two sequences.
@@ -374,7 +468,8 @@ def assign_read_to_sample_from_barcodes(start_barcode, end_barcode, barcodes, sa
 
 def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_dir):
     """
-    Extract barcodes from soft-clipped regions of mapped reads.
+    Extract barcodes from soft-clipped regions of mapped reads and reorganize into sample BAM files.
+    This optimized version works directly with BAM files instead of converting to FASTQ.
     
     Args:
         bam_file (str): Path to mapped BAM file
@@ -400,14 +495,6 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
     # Get all unique sample names from sample sheet
     unique_samples = set(sample_map.values())
     
-    # Create output files
-    sample_files = {}
-    for sample_name in unique_samples:
-        sample_files[sample_name] = open(os.path.join(demux_dir, f"{sample_name}.fastq"), 'w')
-    
-    # Create unassigned file
-    unassigned_file = open(os.path.join(demux_dir, f"{UNASSIGNED_NAME}.fastq"), 'w')
-    
     # Create CSV results file
     csv_file = open(os.path.join(demux_dir, MOTIF_CSV_NAME), 'w')
     csv_writer = csv.writer(csv_file)
@@ -420,10 +507,7 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
     ]
     csv_writer.writerow(header)
     
-    # Store all CSV rows to write at the end (to handle second pass updates)
-    csv_rows = []
-    
-    # Process reads from BAM file
+    # Process reads from BAM file and collect assignments
     total_reads = 0
     assigned_reads = 0
     reads_without_softclip = 0
@@ -446,6 +530,8 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
         'no_softclip': 0
     }
     
+    # Store sample assignments for BAM reorganization
+    sample_assignments = {}
     
     with pysam.AlignmentFile(bam_file, "rb") as bamfile:
         for read in bamfile:
@@ -463,7 +549,8 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
             if not has_softclip:
                 reads_without_softclip += 1
                 barcode_stats['no_softclip'] += 1
-                # Skip reads without soft-clipped regions
+                # Assign to unassigned
+                sample_assignments[read.query_name] = "unassigned"
                 continue
             
             # Extract 20bp from each soft-clipped region (end of left, beginning of right)
@@ -513,6 +600,9 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
                 forward_barcode, reverse_barcode, barcodes, sample_map
             )
             
+            # Store assignment for BAM reorganization
+            sample_assignments[read.query_name] = sample_name
+            
             # Update assignment reason if motif extraction was used
             original_forward = left_soft[-20:] if len(left_soft) >= 20 else left_soft
             original_reverse = right_soft[:20] if len(right_soft) >= 20 else right_soft
@@ -524,23 +614,14 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
             # Track assignment statistics
             if assignment_reason == "success":
                 assignment_stats['success'] += 1
+                assigned_reads += 1
             elif assignment_reason.startswith("motif_"):
                 assignment_stats['motif_success'] += 1
+                assigned_reads += 1
             elif assignment_reason == "sample_not_found":
                 assignment_stats['sample_not_found'] += 1
             elif assignment_reason == "barcode_not_found":
                 assignment_stats['barcode_not_found'] += 1
-            
-            # Create FASTQ record from BAM read
-            fastq_record = create_fastq_from_bam_read(read)
-            
-            # Write to appropriate file
-            if sample_name != "unassigned":
-                if sample_name in sample_files:
-                    SeqIO.write(fastq_record, sample_files[sample_name], "fastq")
-                    assigned_reads += 1
-            else:
-                SeqIO.write(fastq_record, unassigned_file, "fastq")
             
             # Write CSV row - use the barcodes that were actually used for assignment
             if barcode_info:
@@ -564,12 +645,12 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
             
             csv_writer.writerow(row)
     
-    
-    # Close files
-    for file_handle in sample_files.values():
-        file_handle.close()
-    unassigned_file.close()
+    # Close CSV file
     csv_file.close()
+    
+    # Reorganize BAM file into sample-specific BAM files
+    print(f"\n🔄 Reorganizing BAM files by sample assignments...")
+    bam_reorg_results = reorganize_bam_by_samples(bam_file, sample_assignments, demux_dir, verbose=True)
     
     # Print demultiplexing statistics (always show)
     print(f"\n" + "="*80)
@@ -592,6 +673,7 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
     print(f"   Only 5' barcode found:            {barcode_stats['only_5p_barcode']:6,} reads ({barcode_stats['only_5p_barcode']/softclip_reads*100:5.1f}%)")
     print(f"   Only 3' barcode found:            {barcode_stats['only_3p_barcode']:6,} reads ({barcode_stats['only_3p_barcode']/softclip_reads*100:5.1f}%)")
     print(f"   No barcodes found:                {barcode_stats['no_barcodes']:6,} reads ({barcode_stats['no_barcodes']/softclip_reads*100:5.1f}%)")
+    print(f"-" * 80)
     print(f"   No soft-clip regions:             {barcode_stats['no_softclip']:6,} reads ({barcode_stats['no_softclip']/total_reads*100:5.1f}%)")
     print()
     
@@ -609,26 +691,8 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
     print(f"📋 SAMPLE ASSIGNMENTS:")
     print(f"-" * 60)
     
-    # Count reads per sample
-    sample_counts = {}
-    for sample_name in unique_samples:
-        sample_file = os.path.join(demux_dir, f"{sample_name}.fastq")
-        if os.path.exists(sample_file):
-            with open(sample_file, 'r') as f:
-                # Count FASTQ records (4 lines per record)
-                line_count = sum(1 for line in f)
-                sample_counts[sample_name] = line_count // 4
-        else:
-            sample_counts[sample_name] = 0
-    
-    # Add unassigned count
-    unassigned_file_path = os.path.join(demux_dir, f"{UNASSIGNED_NAME}.fastq")
-    if os.path.exists(unassigned_file_path):
-        with open(unassigned_file_path, 'r') as f:
-            line_count = sum(1 for line in f)
-            sample_counts["unassigned"] = line_count // 4
-    else:
-        sample_counts["unassigned"] = 0
+    # Get read counts from BAM reorganization results
+    sample_counts = bam_reorg_results['read_counts']
     
     # Sort samples by read count (descending)
     sorted_samples = sorted(sample_counts.items(), key=lambda x: x[1], reverse=True)
@@ -651,7 +715,9 @@ def extract_barcodes_from_bam(bam_file, config_file, sample_sheet_file, output_d
         'barcode_stats': barcode_stats,
         'assignment_stats': assignment_stats,
         'demultiplexed_dir': demux_dir,
-        'unique_samples': list(unique_samples)
+        'unique_samples': list(unique_samples),
+        'sample_bam_files': bam_reorg_results['sample_bam_files'],
+        'sample_assignments': sample_assignments
     }
 
 
@@ -707,26 +773,18 @@ def map_pipeline(reference, fastq, output_dir, min_length=DEFAULT_MIN_LENGTH, mi
         if verbose:
             logger.log_message("Extracting barcodes from soft-clipped regions...")
         
-        # Extract barcodes from soft-clipped regions and demultiplex
+        # Extract barcodes from soft-clipped regions and reorganize BAM files directly
         demux_results = extract_barcodes_from_bam(output_bam, config_file, sample_sheet, output_dir)
         
-        # Map each demultiplexed file
-        demux_dir = demux_results['demultiplexed_dir']
-        demux_files = [f for f in os.listdir(demux_dir) if f.endswith('.fastq')]
+        # Get the sample BAM files that were created during reorganization
+        sample_bam_files = demux_results.get('sample_bam_files', {})
         
         if verbose:
-            logger.log_message(f"Found {len(demux_files)} demultiplexed files to map")
+            logger.log_message(f"Created {len(sample_bam_files)} sample BAM files (already sorted and indexed)")
         
-        for sample_file in demux_files:
-            sample_name = sample_file.replace('.fastq', '')
-            sample_fastq = os.path.join(demux_dir, sample_file)
-            sample_bam = os.path.join(output_dir, f"{sample_name}.bam")
-            
-            if verbose:
-                logger.log_message(f"Mapping {sample_name}...")
-            
-            align_and_sort_reads(reference, sample_fastq, sample_bam, threads, verbose)
-            results['demultiplexed_files'].append(sample_bam)
+        # Add sample BAM files to results
+        for sample_name, bam_path in sample_bam_files.items():
+            results['demultiplexed_files'].append(bam_path)
         
         results['demux_results'] = demux_results
     else:
