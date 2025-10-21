@@ -30,7 +30,7 @@ def umi_extraction_map(
     logger.log_message("Extracting UMIs from aligned reads...")
 
     # Extract raw UMIs
-    raw_umi5_list, raw_umi3_list, motif5_index, motif3_index, raw_UMI_dict = findUMI(
+    raw_umi5_list, raw_umi3_list, motif5_index, motif3_index, raw_UMI_dict = findUMI_legacy(
         reference, alignedReads, barcodeMotif, minReadLength
     )
     if raw_umi5_list is None or raw_umi3_list is None:

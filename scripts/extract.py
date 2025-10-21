@@ -15,11 +15,11 @@ except ImportError:
             print(f"[LOG] {message}")
     
     log = MockLog
+
 import pysam
 from Bio import SeqIO
 import os
 import pandas as pd
-
 
 def extract_umis(reference, alignedReads, minReadLength, barcodeMotifs, outputPath):
     sampleName: object = alignedReads.split("/")[-1].split(".")[0]
@@ -59,6 +59,102 @@ def extract_umis(reference, alignedReads, minReadLength, barcodeMotifs, outputPa
     df.index.name = 'Read Name'
     df.reset_index(inplace=True)
     df.to_csv(csv_file, index=False)
+
+
+def findUMI_legacy(reference, alignedReads, barcodeMotif, minReadLength):
+    """
+    Legacy version of findUMI that extracts 5' and 3' UMIs separately.
+    Finds first occurrence (5' motif) and last occurrence (3' motif) in reference sequence.
+    Returns: (raw_umi5_list, raw_umi3_list, motif5_index, motif3_index, raw_UMI_dict)
+    """
+    # Initializing variables
+    raw_umi5_list = []
+    raw_umi3_list = []
+    raw_UMI_dict = {}
+    input_bam = alignedReads
+
+    if not input_bam.endswith('.bam'):
+        print(f"Input file {input_bam} is not a BAM file.")
+        return None, None, None, None, None
+    if not reference.endswith('.fasta') and not reference.endswith('.fa'):
+        print(f"Reference file {reference} is not a FASTA file.")
+        return None, None, None, None, None
+
+    # Read reference sequence and find motif positions
+    with open(reference, "r") as ref_file:
+        ref_seq = str(SeqIO.read(ref_file, "fasta").seq)
+    
+    # Find 5' motif (first occurrence) and 3' motif (last occurrence)
+    motif5_index = ref_seq.find(barcodeMotif)
+    motif3_index = ref_seq.rfind(barcodeMotif)
+    
+    if motif5_index == -1:
+        print(f"Motif '{barcodeMotif}' not found in reference sequence.")
+        return None, None, None, None, None
+    
+    motif_length = len(barcodeMotif)
+    
+    # Calculate UMI regions
+    umi5_start = motif5_index + 1  # Skip the first base (motif marker)
+    umi5_end = motif5_index + motif_length
+    umi3_start = motif3_index + 1
+    umi3_end = motif3_index + motif_length
+    
+    # Extract UMIs from both regions
+    bamfile = pysam.AlignmentFile(input_bam, "rb")
+    
+    for read in bamfile.fetch(start=min(umi5_start, umi3_start) - 1, end=max(umi5_end, umi3_end)):
+        if read.query_sequence is None or len(read.query_sequence) < minReadLength:
+            continue
+        
+        ref_positions = read.get_reference_positions(full_length=True)
+        
+        # Extract 5' UMI
+        umi5 = None
+        query_start = None
+        query_end = None
+        
+        for i, ref_pos in enumerate(ref_positions):
+            if ref_pos == umi5_start - 1 and query_start is None:
+                query_start = i
+            if ref_pos == umi5_end - 1:
+                query_end = i + 1
+                break
+        
+        if query_start is not None and query_end is not None:
+            seq = read.query_sequence[query_start:query_end]
+            if len(seq) == motif_length:
+                umi5 = seq
+        
+        # Extract 3' UMI (if different from 5')
+        umi3 = None
+        if motif3_index != motif5_index:
+            query_start = None
+            query_end = None
+            
+            for i, ref_pos in enumerate(ref_positions):
+                if ref_pos == umi3_start - 1 and query_start is None:
+                    query_start = i
+                if ref_pos == umi3_end - 1:
+                    query_end = i + 1
+                    break
+            
+            if query_start is not None and query_end is not None:
+                seq = read.query_sequence[query_start:query_end]
+                if len(seq) == motif_length:
+                    umi3 = seq
+        else:
+            umi3 = umi5
+        
+        # Add to lists and dictionary if both UMIs found
+        if umi5 is not None and umi3 is not None:
+            raw_umi5_list.append(umi5)
+            raw_umi3_list.append(umi3)
+            raw_UMI_dict[read.query_name] = (umi5, umi3)
+    
+    bamfile.close()
+    
+    return raw_umi5_list, raw_umi3_list, motif5_index, motif3_index, raw_UMI_dict
 
 
 def findUMI(reference, alignedReads, barcodeMotifs, minReadLength):
@@ -162,6 +258,7 @@ def findUMI(reference, alignedReads, barcodeMotifs, minReadLength):
     for positions in motif_indices:
         flat_indices.extend(positions)
     
+
     return flat_indices, raw_UMI_dict
 
 
