@@ -1,322 +1,238 @@
 #!/usr/bin/env python3
 """
-Simplified test file for BELT extract function
+Pytest test file for BELT extract function
 """
-
 import os
 import sys
+import pytest
 import pandas as pd
 from pathlib import Path
 
 # Add the scripts directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
-from extract import extract_umis, findUMI
+from extract import extract_umis, findUMI  # type: ignore
 
-# Test configuration constants
-# Modify these values to test different scenarios
-TEST_CONFIG = {
-    'min_read_length': 2000,
-    'barcode_motifs': ["NNNNNNNNNNNNNNM", "NNNNNNNNNNNNNNM"],  # 15 N's for both 5' and 3' UMIs
-    'test_data_dir': "scripts/test-data/test-umi_map",
-    'reference_file': "scripts/test-data/test-umi_map/reference_sequence/B145.fa",
-    'bam_file': "scripts/test-data/test-umi_map/sorted_reads/B145-XTMMF9-12.bam"
-}
+"""
+Test the findUMI function with a single motif
+"""
 
+@pytest.fixture
+def test_config_one_motif():
+    """Fixture for test configuration with single motif"""
+    return {
+        'min_read_length': 2000,
+        'barcode_motifs': ["NNNNNNNNNNNN"],  # 12N
+        'test_data_dir': "test-data/test_extract",
+        'reference_file': "test-data/test_extract/extract_umi_1.fa",
+        'bam_file': "test-data/test_extract/extract_umi_1.bam"
+    }
 
-def setup_test_environment():
-    """Set up and verify the test environment"""
-    print("=" * 60)
-    print("BELT Extract Function Test Setup")
-    print("=" * 60)
-    
-    # Define test data paths using constants
-    test_data_dir = Path(__file__).parent.parent / TEST_CONFIG['test_data_dir']
-    reference_file = Path(__file__).parent.parent / TEST_CONFIG['reference_file']
-    bam_file = Path(__file__).parent.parent / TEST_CONFIG['bam_file']
-    
-    print(f"Test data directory: {test_data_dir}")
-    print(f"Reference file: {reference_file}")
-    print(f"BAM file: {bam_file}")
-    print()
-    
-    # Verify files exist
-    files_ok = True
-    
-    if not test_data_dir.exists():
-        print("❌ Test data directory not found!")
-        files_ok = False
-    else:
-        print("✅ Test data directory exists")
-    
-    if not reference_file.exists():
-        print("❌ Reference file not found!")
-        files_ok = False
-    else:
-        print("✅ Reference file exists")
-        # Show reference file content
-        with open(reference_file, 'r') as f:
-            content = f.read()
-            print(f"   Reference length: {len(content)} characters")
-            # Check if any of the barcode motifs are in the reference
-            motif_found = any(motif in content for motif in TEST_CONFIG['barcode_motifs'])
-            print(f"   Contains barcode motifs: {motif_found}")
-    
-    if not bam_file.exists():
-        print("❌ BAM file not found!")
-        files_ok = False
-    else:
-        print("✅ BAM file exists")
-        # Check BAM file size
-        size_mb = bam_file.stat().st_size / (1024 * 1024)
-        print(f"   BAM file size: {size_mb:.1f} MB")
-    
-    print()
-    
-    if not files_ok:
-        print("❌ Setup failed - missing required files!")
-        return None, None, None
-    
-    print("✅ All test files verified successfully!")
-    print()
-    
-    return reference_file, bam_file, test_data_dir
+@pytest.fixture
+def test_paths(test_config_one_motif):
+    """Fixture to build absolute paths from test file location"""
+    base_dir = Path(__file__).parent.parent
+    return {
+        'reference_file': base_dir / test_config_one_motif['reference_file'],
+        'bam_file': base_dir / test_config_one_motif['bam_file'],
+        'base_dir': base_dir
+    }
 
+def test_findUMI(test_config_one_motif, test_paths):
+    """Test the findUMI function extracts UMIs correctly"""
+    reference_file = test_paths['reference_file']
+    bam_file = test_paths['bam_file']
+    
+    # Verify test files exist
+    assert reference_file.exists(), f"Reference file not found: {reference_file}"
+    assert bam_file.exists(), f"BAM file not found: {bam_file}"
 
-def test_extract_function(reference_file, bam_file, output_dir):
-    """Test the extract function and show example output"""
-    print("=" * 60)
-    print("Testing Extract Function")
-    print("=" * 60)
-    
-    # Use test configuration constants
-    min_read_length = TEST_CONFIG['min_read_length']
-    barcode_motifs = TEST_CONFIG['barcode_motifs']
-    
-    print(f"Parameters:")
-    print(f"  Min read length: {min_read_length}")
-    print(f"  Barcode motifs: {barcode_motifs}")
-    print(f"  Expected number of UMI columns: {len(barcode_motifs)}")
-    print(f"  Output directory: {output_dir}")
-    print()
-    
-    try:
-        # Run the extract function
-        print("Running extract_umis function...")
-        extract_umis(
-            str(reference_file),
-            str(bam_file),
-            min_read_length,
-            barcode_motifs,
-            str(output_dir)
-        )
-        print("✅ Extract function completed successfully!")
-        print()
-        
-        # Check output file
-        expected_output_file = output_dir / "B145-XTMMF9-12_rawUMIs_read_names.csv"
-        
-        if expected_output_file.exists():
-            print("✅ Output file created successfully!")
-            print(f"Output file: {expected_output_file}")
-            
-            # Read and display results
-            df = pd.read_csv(expected_output_file)
-            print(f"Number of reads processed: {len(df)}")
-            print(f"Columns: {list(df.columns)}")
-            
-            # Verify we got the expected number of UMI columns
-            umi_columns = [col for col in df.columns if col != 'Read Name']
-            expected_umi_count = len(barcode_motifs)
-            actual_umi_count = len(umi_columns)
-            
-            print(f"Expected UMI columns: {expected_umi_count}")
-            print(f"Actual UMI columns: {actual_umi_count}")
-            
-            if actual_umi_count == expected_umi_count:
-                print("✅ Correct number of UMI columns extracted!")
-            else:
-                print(f"⚠️  Expected {expected_umi_count} UMI columns, got {actual_umi_count}")
-            
-            print()
-            
-            return df, expected_output_file, barcode_motifs
-        else:
-            print("❌ Output file not found!")
-            return None, None, None
-            
-    except Exception as e:
-        print(f"❌ Extract function failed with error: {e}")
-        return None, None, None
+    # Run the findUMI function
+    motif_indices, raw_UMI_dict = findUMI(
+        str(reference_file), 
+        str(bam_file), 
+        test_config_one_motif['barcode_motifs'], 
+        test_config_one_motif['min_read_length']
+    )
 
+    print(motif_indices)
+    print(raw_UMI_dict)
 
-def show_example_output(df, output_file, barcode_motifs):
-    """Display example output from the extract function"""
-    print("=" * 60)
-    print("Example Output")
-    print("=" * 60)
+    # Verify results
+    # Make sure only 1 UMI is found per read (no duplicate read names)
+    assert len(raw_UMI_dict) == len(set(raw_UMI_dict.keys())), \
+        "Duplicate read names found in UMI dictionary"
     
-    if df is None or len(df) == 0:
-        print("No data to display")
-        return
+    # Verify we found at least some UMIs
+    assert len(raw_UMI_dict) > 0, "No UMIs were found"
     
-    # Get UMI columns (exclude 'Read Name')
-    umi_columns = [col for col in df.columns if col != 'Read Name']
+    # Verify each read has the correct number of UMIs (one per motif)
+    expected_umi_count = len(test_config_one_motif['barcode_motifs'])
+    for read_name, umis in raw_UMI_dict.items():
+        assert len(umis) == expected_umi_count, \
+            f"Read {read_name} has {len(umis)} UMIs, expected {expected_umi_count}"
     
-    # Show UMI column mapping
-    print("UMI Column Mapping:")
-    for i, motif in enumerate(barcode_motifs):
-        if i < len(umi_columns):
-            print(f"  {umi_columns[i]} -> Barcode motif: {motif}")
-        else:
-            print(f"  [Missing] -> Barcode motif: {motif}")
-    print()
-    
-    # Show first 10 rows
-    print("First 10 extracted UMIs:")
-    print("-" * 60)
-    
-    # Format the output nicely
-    for i, (_, row) in enumerate(df.head(10).iterrows()):
-        read_name = row['Read Name']
-        print(f"{i+1:2d}. Read: {read_name[:30]}...")
-        
-        # Show all UMI columns
-        for j, umi_col in enumerate(umi_columns):
-            umi_value = row[umi_col] if pd.notna(row[umi_col]) else "None"
-            print(f"    {umi_col}: {umi_value}")
-        print()
-    
-    if len(df) > 10:
-        print(f"... and {len(df) - 10} more reads")
-    
-    print()
-    print("Summary statistics:")
-    print(f"  Total reads: {len(df)}")
-    
-    # Show statistics for each UMI column
-    for umi_col in umi_columns:
-        umi_count = df[umi_col].notna().sum()
-        print(f"  Reads with {umi_col}: {umi_count}")
-    
-    print()
-    print(f"Output file saved to: {output_file}")
+    # Verify the number of motif positions found matches the expected count
+    assert len(motif_indices) == expected_umi_count, \
+        f"Found {len(motif_indices)} motif positions, expected {expected_umi_count}"
 
+"""
+Test the findUMI function with five motifs
+"""
+@pytest.fixture
+def test_config_five_motifs():
+    """Fixture for test configuration with five motifs"""
+    return {
+        'min_read_length': 2000,
+        'barcode_motifs': ["NNNNNNNNNNNN", "NNNNNNNNNNNN", "NNNNNNNNNNNN", "NNNNNNNNNNNN", "NNNNNNNNNNNN"],
+        'test_data_dir': "test-data/test_extract",
+        'reference_file': "test-data/test_extract/extract_umi_5.fa",
+        'bam_file': "test-data/test_extract/extract_umi_5.bam"
+    }
 
-def test_multiple_motifs(reference_file, bam_file, output_dir):
-    """Test with multiple barcode motifs to show dynamic UMI extraction"""
-    print("=" * 60)
-    print("Testing with Multiple Barcode Motifs")
-    print("=" * 60)
-    
-    # Use test configuration constants
-    min_read_length = TEST_CONFIG['min_read_length']
-    barcode_motifs = TEST_CONFIG['barcode_motifs']
-    
-    print(f"Parameters:")
-    print(f"  Min read length: {min_read_length}")
-    print(f"  Barcode motifs: {barcode_motifs}")
-    print(f"  Expected number of UMI columns: {len(barcode_motifs)}")
-    print()
-    
-    try:
-        # Run the extract function
-        print("Running extract_umis function with multiple motifs...")
-        extract_umis(
-            str(reference_file),
-            str(bam_file),
-            min_read_length,
-            barcode_motifs,
-            str(output_dir / "multiple_motifs")
-        )
-        print("✅ Extract function completed successfully!")
-        print()
-        
-        # Check output file
-        expected_output_file = output_dir / "multiple_motifs" / "B145-XTMMF9-12_rawUMIs_read_names.csv"
-        
-        if expected_output_file.exists():
-            print("✅ Output file created successfully!")
-            
-            # Read and display results
-            df = pd.read_csv(expected_output_file)
-            print(f"Number of reads processed: {len(df)}")
-            print(f"Columns: {list(df.columns)}")
-            
-            # Verify we got the expected number of UMI columns
-            umi_columns = [col for col in df.columns if col != 'Read Name']
-            expected_umi_count = len(barcode_motifs)
-            actual_umi_count = len(umi_columns)
-            
-            print(f"Expected UMI columns: {expected_umi_count}")
-            print(f"Actual UMI columns: {actual_umi_count}")
-            
-            if actual_umi_count == expected_umi_count:
-                print("✅ Correct number of UMI columns extracted!")
-            else:
-                print(f"⚠️  Expected {expected_umi_count} UMI columns, got {actual_umi_count}")
-            
-            print()
-            
-            return df, expected_output_file, barcode_motifs
-        else:
-            print("❌ Output file not found!")
-            return None, None, None
-            
-    except Exception as e:
-        print(f"❌ Extract function failed with error: {e}")
-        return None, None, None
+@pytest.fixture
+def test_paths_five_motifs(test_config_five_motifs):
+    """Fixture to build absolute paths for five motif test"""
+    base_dir = Path(__file__).parent.parent
+    return {
+        'reference_file': base_dir / test_config_five_motifs['reference_file'],
+        'bam_file': base_dir / test_config_five_motifs['bam_file'],
+        'base_dir': base_dir
+    }
 
-
-def main():
-    """Main function to run the simplified test"""
-    import tempfile
-    import shutil
+def test_findUMI_five_motifs(test_config_five_motifs, test_paths_five_motifs):  
+    """Test the findUMI function extracts UMIs correctly with five motifs"""
+    reference_file = test_paths_five_motifs['reference_file']
+    bam_file = test_paths_five_motifs['bam_file']
     
-    # Create temporary directory for output
-    temp_dir = tempfile.mkdtemp()
-    output_dir = Path(temp_dir)
+    # Verify test files exist
+    assert reference_file.exists(), f"Reference file not found: {reference_file}"
+    assert bam_file.exists(), f"BAM file not found: {bam_file}"
     
-    try:
-        # Step 1: Setup and verify files
-        reference_file, bam_file, test_data_dir = setup_test_environment()
-        
-        if reference_file is None:
-            return 1
-        
-        # Step 2: Test the extract function with single motif
-        print("🔍 Testing with single barcode motif...")
-        df, output_file, barcode_motifs = test_extract_function(reference_file, bam_file, output_dir)
-        
-        if df is None:
-            return 1
-        
-        # Step 3: Show example output
-        show_example_output(df, output_file, barcode_motifs)
-        
-        print("\n" + "=" * 60)
-        print("🔍 Testing with multiple barcode motifs...")
-        
-        # Step 4: Test with multiple motifs
-        df_multi, output_file_multi, barcode_motifs_multi = test_multiple_motifs(reference_file, bam_file, output_dir)
-        
-        if df_multi is not None:
-            show_example_output(df_multi, output_file_multi, barcode_motifs_multi)
-        
-        print("=" * 60)
-        print("✅ All tests completed successfully!")
-        print("=" * 60)
-        
-        return 0
-        
-    except Exception as e:
-        print(f"❌ Test failed with error: {e}")
-        return 1
-        
-    finally:
-        # Clean up temporary directory
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    # Run the findUMI function
+    motif_indices, raw_UMI_dict = findUMI(
+        str(reference_file), 
+        str(bam_file), 
+        test_config_five_motifs['barcode_motifs'], 
+        test_config_five_motifs['min_read_length']
+    )
 
+    print(motif_indices)
+    print(raw_UMI_dict)
+    
+    # Verify results
+    # Make sure only 1 UMI is found per read (no duplicate read names)
+    assert len(raw_UMI_dict) == len(set(raw_UMI_dict.keys())), \
+        "Duplicate read names found in UMI dictionary"
+    
+    # Verify we found at least some UMIs
+    assert len(raw_UMI_dict) > 0, "No UMIs were found"
+    
+    # Verify each read has the correct number of UMIs (one per motif)
+    expected_umi_count = len(test_config_five_motifs['barcode_motifs'])
+    for read_name, umis in raw_UMI_dict.items():
+        assert len(umis) == expected_umi_count, \
+            f"Read {read_name} has {len(umis)} UMIs, expected {expected_umi_count}"
+    
+    # Verify the number of motif positions found matches the expected count
+    assert len(motif_indices) == expected_umi_count, \
+        f"Found {len(motif_indices)} motif positions, expected {expected_umi_count}"
 
-if __name__ == '__main__':
-    exit(main())
+### TODO: Add tests for reads where only 4/5 UMIs are found
+### TODO: Add tests for reads where no UMIs are found
+
+"""
+Test the extract_umis function with a larger dataset
+"""
+@pytest.fixture
+def test_config_extract_large():
+    """Fixture for test configuration with larger dataset"""
+    return {
+        'min_read_length': 2000,
+        'barcode_motifs': ["NNNNNNNNNNNN", "NNNNNNNNNNNN", "NNNNNNNNNNNN", "NNNNNNNNNNNN", "NNNNNNNNNNNN"],
+        'reference_file': "test-data/test_extract/extract_umi_5-large.fasta",
+        'bam_file': "test-data/test_extract/extract_umi_5-large.bam",
+        'output_file': "test-data/test_extract/test_output_large.csv"
+    }
+
+@pytest.fixture
+def test_paths_extract_large(test_config_extract_large):
+    """Fixture to build absolute paths for extract_umis test"""
+    base_dir = Path(__file__).parent.parent
+    return {
+        'reference_file': base_dir / test_config_extract_large['reference_file'],
+        'bam_file': base_dir / test_config_extract_large['bam_file'],
+        'output_file': base_dir / test_config_extract_large['output_file'],
+        'base_dir': base_dir
+    }
+
+def test_extract_umis_large(test_config_extract_large, test_paths_extract_large):
+    """Test the extract_umis function on a larger dataset and validate CSV output"""
+    reference_file = test_paths_extract_large['reference_file']
+    bam_file = test_paths_extract_large['bam_file']
+    output_file = test_paths_extract_large['output_file']
+    
+    # Verify test files exist
+    assert reference_file.exists(), f"Reference file not found: {reference_file}"
+    assert bam_file.exists(), f"BAM file not found: {bam_file}"
+    
+    # Clean up output file if it exists from previous run
+    if output_file.exists():
+        output_file.unlink()
+    
+    # Run the extract_umis function
+    extract_umis(
+        str(reference_file),
+        str(bam_file),
+        test_config_extract_large['min_read_length'],
+        test_config_extract_large['barcode_motifs'],
+        str(output_file)
+    )
+    
+    # Verify output file was created
+    assert output_file.exists(), f"Output CSV file was not created: {output_file}"
+    
+    # Read and validate the CSV file
+    df = pd.read_csv(output_file)
+    
+    print(f"\n{'='*60}")
+    print(f"CSV Output Summary:")
+    print(f"  - Total reads with UMIs: {len(df)}")
+    print(f"  - Columns: {list(df.columns)}")
+    print(f"  - First 3 rows:")
+    print(df.head(3).to_string(index=False))
+    print(f"{'='*60}\n")
+    
+    # Validate CSV structure
+    expected_columns = ['Read Name'] + [f'UMI{i+1}' for i in range(len(test_config_extract_large['barcode_motifs']))]
+    assert list(df.columns) == expected_columns, \
+        f"CSV columns mismatch. Expected {expected_columns}, got {list(df.columns)}"
+    
+    # Verify we have some reads
+    assert len(df) > 0, "No reads found in output CSV"
+    
+    # Verify each UMI column contains valid DNA sequences
+    umi_columns = [col for col in df.columns if col.startswith('UMI')]
+    for col in umi_columns:
+        # Check that UMIs are non-null and are strings
+        assert df[col].notna().all(), f"Column {col} contains null values"
+        
+        # Check UMI length (should be 12 for NNNNNNNNNNNN motif)
+        umi_lengths = df[col].str.len()
+        assert (umi_lengths == 12).all(), \
+            f"Column {col} has UMIs with incorrect length. Expected 12, got lengths: {umi_lengths.unique()}"
+        
+        # Check UMIs contain only valid DNA bases
+        valid_bases = set('ACGTN')
+        for umi in df[col]:
+            assert all(base in valid_bases for base in umi), \
+                f"Column {col} contains invalid DNA bases in UMI: {umi}"
+    
+    # Verify Read Name column is unique (no duplicates)
+    assert df['Read Name'].is_unique, "Duplicate read names found in CSV"
+    
+    # Clean up test output file
+    if output_file.exists():
+        output_file.unlink()
+    
+    print(f"✓ Test passed: {len(df)} reads processed successfully")
