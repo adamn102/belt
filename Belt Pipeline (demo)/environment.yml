@@ -1,0 +1,15 @@
+name: belt-pipeline-medaka
+channels:
+  - default
+  - conda-forge
+  - bioconda
+  - nanoporetech
+dependencies:
+  - medaka
+  - fastplong            # bioconda
+  - minimap2             # bioconda
+  - samtools             # bioconda
+  - pysam                # bioconda
+  - snakemake            # conda-forge
+  - numpy                # conda-forge
+  - pandas               # conda-forge

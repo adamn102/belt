@@ -27,9 +27,8 @@ def umi_extraction_map(
     logger.log_message("Extracting UMIs from aligned reads...")
 
     # confirm barcodeMotifs is a list
-    if not isinstance(barcodeMotifs, list):
-        logger.log_message("Barcode motifs must be a list. Please provide a list of barcode motifs.")
-        return
+    if isinstance(barcodeMotifs, str):
+        barcodeMotifs = [barcodeMotifs]
     # count the total number of motifs
     total_motifs = len(barcodeMotifs)
 
@@ -50,6 +49,15 @@ def umi_extraction_map(
     # update the column names to be the motif names, e.g. UMI1, UMI2, UMI3, etc., skip the first column
     umi_names = [f"UMI{i+1}" for i in range(total_motifs)]
     df.columns = ["Read Name"] + umi_names
+    
+    # Log statistics about missing UMIs
+    total_reads = len(df)
+    for umi_col in umi_names:
+        missing_count = df[umi_col].isna().sum()
+        if missing_count > 0:
+            logger.log_message(f"{umi_col}: {missing_count}/{total_reads} reads have missing UMI ({missing_count/total_reads*100:.1f}%)")
+        else:
+            logger.log_message(f"{umi_col}: All reads have valid UMI")
 
     # Handle different whitelist modes
     wl_mode = str(whitelist).lower()
@@ -80,12 +88,19 @@ def umi_extraction_map(
 
         # create a new dataframe with the best matches for each read, initiate the df with the read names
 
-        best_matches_df = df[["Read Name"]]
+        best_matches_df = df[["Read Name"]].copy()
         for column in df.columns[1:]:
             best_matches = BK_scan(df[column], whitelist_df[column], max_distance)
             # update the best_matches_df with the best matches for each read
-            # update the df[column] with the best matches for each read
-            mapped_umis = [best_matches[umi][0] for umi in df[column]]
+            # Handle NaN values - preserve them in the output
+            mapped_umis = []
+            for umi in df[column]:
+                if pd.isna(umi):
+                    # If original UMI was NaN, keep it as NaN
+                    mapped_umis.append(None)
+                else:
+                    # Get the best match (first element of tuple)
+                    mapped_umis.append(best_matches[umi][0])
             best_matches_df[column] = mapped_umis
         print(best_matches_df)
 
@@ -179,26 +194,63 @@ def string_hamming(s1, s2):
     return sum(ch1 != ch2 for ch1, ch2 in zip(s1, s2))
 
 def BK_scan(experimental_umis, whitelist, max_distance=1):
-    """Find best approximate match in whitelist for each UMI (with dedup + exact-match fast path)."""
-    # Dedup whitelist too (just in case) and build helpers
-    wl_unique = list(dict.fromkeys(whitelist))
+    """Find best approximate match in whitelist for each UMI (with dedup + exact-match fast path).
+    
+    Handles missing UMIs (NaN/None values) by preserving them in the output.
+    """
+    import pandas as pd
+    
+    # Ensure max_distance is an integer
+    max_distance = int(max_distance)
+    
+    # Keep original input to preserve NaN values and their positions
+    original_umis = list(experimental_umis)
+    
+    # Filter out NaN values from whitelist before building tree
+    wl_unique = [w for w in dict.fromkeys(whitelist) if pd.notna(w)]
+    if not wl_unique:
+        # If whitelist is empty, return mapping that preserves NaN
+        return {umi: (umi, "NoMatch") if pd.notna(umi) else (None, None) 
+                for umi in original_umis}
+    
+    # Make sure all strings in whitelist are the same length
+    if not all(len(umi) == len(wl_unique[0]) for umi in wl_unique):
+        raise ValueError("All strings in the whitelist must be the same length.")
+    
+    # Filter valid (non-NaN) UMIs from experimental data for processing
+    valid_umis = [umi for umi in original_umis if pd.notna(umi)]
+    
+    # Get expected UMI length from whitelist
+    expected_length = len(wl_unique[0])
+    
     wl_set = set(wl_unique)
-    #print(len(wl_set), "unique whitelist UMIs")
     tree = BKTree(string_hamming, wl_unique)
 
     # Dedup queries but preserve order
-    dedup = list(dict.fromkeys(experimental_umis))
-    #print(len(dedup), "unique experimental UMIs")
+    dedup = list(dict.fromkeys(valid_umis))
 
-    # Scan only once per unique UMI
+    # Scan only once per unique UMI (only valid UMIs, no NaN here)
     uniq_results = {}
     for umi in dedup:
+        # Check if UMI has the correct length - if not, mark as NoMatch
+        if len(umi) != expected_length:
+            uniq_results[umi] = (umi, "LengthMismatch")
+            continue
+            
         # O(1) exact match
         if umi in wl_set:
             uniq_results[umi] = (umi, 0)
             continue
 
-        matches = tree.find(umi, max_distance)
+        try:
+            matches = tree.find(umi, max_distance)
+        except (ValueError, TypeError) as e:
+            # Handle edge cases where hamming distance fails
+            print(f"Warning: Could not find matches for UMI '{umi}' (length {len(umi)}): {e}")
+            print(f"Expected length: {expected_length}, Whitelist sample: {wl_unique[0]}")
+            uniq_results[umi] = (umi, "SearchError")
+            continue
+            
         if not matches:
             uniq_results[umi] = (umi, "NoMatch")
         else:
@@ -207,8 +259,16 @@ def BK_scan(experimental_umis, whitelist, max_distance=1):
             best = min(m for d, m in matches if d == min_dist)
             uniq_results[umi] = (best, min_dist)
 
-    # Expand back to all input UMIs (duplicates included)
-    return {umi: uniq_results[umi] for umi in experimental_umis}
+    # Expand back to all input UMIs (including NaN values from original input)
+    # For NaN keys, we need special handling since NaN != NaN in Python
+    result = {}
+    for umi in original_umis:
+        if pd.isna(umi):
+            result[umi] = (None, None)
+        else:
+            result[umi] = uniq_results[umi]
+    
+    return result
 
 def load_whitelist(whitelist_file):
     """Load whitelist CSV into two lists of UMIs."""

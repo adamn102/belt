@@ -2,13 +2,15 @@
 set -euo pipefail
 
 # Usage:
-# ./make_consensus.sh <reads.fastq> <reference.fasta> <output_dir> [threads] [medaka_model]
+# ./consensus.sh <reads.fastq> <reference.fasta> <meta_dir> <consensus_dir> <threads> <medaka_model> [bam_dir]
 
 READS=$1           # e.g., AAAAATTTCCCAAAC_reads.fastq
 REF=$2             # e.g., reference.fasta
-OUTDIR=$3          # e.g., output_folder
-THREADS=${4:-2}    # default 2 threads
-MODEL=${5:-r1041_e82_400bps_sup_variant_v5.0.0}  # default model for R10.4.1 sup
+METADIR=$3         # e.g., meta directory for intermediate files
+OUTDIR=$4          # e.g., consensus output directory
+THREADS=${5:-2}    # number of threads
+MODEL=${6:-r1041_e82_400bps_sup_variant_v5.0.0}  # medaka model
+# $7 is optional bam_dir (not used currently)
 
 # Extract UMI from reads filename
 # e.g., AAAAATTTCCCAAAC_reads.fastq --> AAAAATTTCCCAAAC
@@ -17,18 +19,15 @@ UMI="${BASENAME%%_*}"
 
 echo "✅ UMI detected: $UMI"
 
-# Create or clean output dir
-if [ -d "$OUTDIR" ]; then
-    echo "⚠️  Output directory exists, clearing old files..."
-    rm -rf "$OUTDIR"/*
-else
-    mkdir -p "$OUTDIR"
-fi
+# Create meta and output directories
+mkdir -p "$METADIR"
+mkdir -p "$OUTDIR"
 
-# Filenames
-ALIGN_BAM="$OUTDIR/aligned.bam"
-VCF_RAW="$OUTDIR/medaka.vcf"
-VCF_NORM="$OUTDIR/medaka.norm.vcf.gz"
+# Filenames (intermediate files in METADIR)
+ALIGN_BAM="$METADIR/aligned.bam"
+VCF_RAW="$METADIR/medaka.vcf"
+VCF_NORM="$METADIR/medaka.norm.vcf.gz"
+# Final consensus in OUTDIR
 CONSENSUS_FASTA="$OUTDIR/${UMI}_consensus.fasta"
 
 echo "✅ Step 1: Aligning reads to reference..."
@@ -41,7 +40,7 @@ echo "✅ Step 3: Calling variants with medaka_variant..."
 medaka_variant \
     -i "$READS" \
     -r "$REF" \
-    -o "$OUTDIR" \
+    -o "$METADIR" \
     -m "$MODEL"
 
 # Detect output VCF

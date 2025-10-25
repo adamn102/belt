@@ -1,0 +1,280 @@
+# BELT Demo Pipeline Snakefile
+# This pipeline demonstrates the complete BELT workflow using synthetic demo data
+# Data is small enough to be hosted on GitHub for easy testing
+
+import os
+import glob
+
+# Load configuration
+configfile: "configs/demo.yaml"
+
+#########################################################
+# Rule: all
+# This rule collects all final outputs for the demo
+#########################################################
+
+def list_all_consensus():
+    return [f"data/8-compiled_consensus/{sample}-compiled-consensus.fa" for sample in config["samples"]]
+
+def list_all_umi_groups():
+    return [f"data/6-umi_groups/{sample}.grouped.bam" for sample in config["samples"]]
+
+rule all:
+    input:
+        # Quality filtering
+        expand("data/2-fastq_filtered/{sample}.fastq", sample=config["samples"]),
+        # Mapping
+        expand("data/4-sorted_reads/{sample}.bam.bai", sample=config["samples"]),
+        # UMI extraction
+        expand("data/5-umi_maps/{sample}_Paired_UMIs_read_names.csv", sample=config["samples"]),
+        # UMI grouping
+        list_all_umi_groups(),
+        # Consensus calling
+        list_all_consensus(),
+        # Demo summary
+        "demo_summary.txt"
+    message: "BELT Demo Pipeline Complete! Check demo_summary.txt for results."
+
+#########################################################
+# Helper functions
+#########################################################
+
+def get_reference(wildcards):
+    """Get reference file - simplified for demo"""
+    return "data/0-reference_sequence/demo_ref.fa"
+
+def get_consensus_reference(wildcards):
+    """Get consensus reference file - simplified for demo"""
+    return "data/0-consensus_reference/demo_ref.fa"
+
+def get_whitelist(wildcards):
+    """Get whitelist file for a sample"""
+    whitelist_name = config["whitelist"][wildcards.sample]
+    return f"data/0-library_whitelist/{whitelist_name}.csv"
+
+def get_motif(wildcards):
+    """Get barcode motif for a sample"""
+    return config["barcodes"][wildcards.sample]
+
+def get_min_length(wildcards):
+    """Get minimum read length for a sample"""
+    return config["min_lengths"][wildcards.sample]
+
+#########################################################
+# Rule: filter_sequences
+# Quality filter and length filter raw FASTQ files
+#########################################################
+
+rule filter_sequences:
+    input:
+        lambda wildcards: config["samples"][wildcards.sample]
+    output:
+        "data/2-fastq_filtered/{sample}.fastq"
+    params:
+        min_length = get_min_length
+    log:
+        "logs/fastq/{sample}.log"
+    message: "Quality filtering {wildcards.sample}"
+    shell:
+        """
+        fastplong \
+            --in {input} \
+            --out {output} \
+            --length_required {params.min_length} \
+            --qualified_quality_phred 25 \
+            --unqualified_percent_limit 50 \
+            --disable_adapter_trimming \
+            --html logs/fastq/{wildcards.sample}.html \
+            --json logs/fastq/{wildcards.sample}.json
+        """
+
+#########################################################
+# Rule: map_reads
+# Map filtered reads to reference using minimap2
+#########################################################
+
+rule map_reads:
+    input:
+        fastq = "data/2-fastq_filtered/{sample}.fastq",
+        reference = get_reference
+    output:
+        temp("data/3-mapped_reads/{sample}.bam")
+    threads: 4
+    message: "Mapping reads for {wildcards.sample}"
+    shell:
+        """
+        minimap2 -ax map-ont -t {threads} {input.reference} {input.fastq} | \
+        samtools view -b -o {output}
+        """
+
+#########################################################
+# Rule: samtools_sort
+# Sort BAM files by coordinate
+#########################################################
+
+rule samtools_sort:
+    input:
+        "data/3-mapped_reads/{sample}.bam"
+    output:
+        "data/4-sorted_reads/{sample}.bam"
+    threads: 4
+    message: "Sorting BAM for {wildcards.sample}"
+    shell:
+        """
+        samtools sort -@ {threads} -o {output} {input}
+        """
+
+#########################################################
+# Rule: samtools_index
+# Index sorted BAM files
+#########################################################
+
+rule samtools_index:
+    input:
+        "data/4-sorted_reads/{sample}.bam"
+    output:
+        "data/4-sorted_reads/{sample}.bam.bai"
+    message: "Indexing BAM for {wildcards.sample}"
+    shell:
+        """
+        samtools index {input}
+        """
+
+#########################################################
+# Rule: umi_map
+# Extract and map UMIs to whitelist
+#########################################################
+
+rule umi_map:
+    input:
+        reference = get_reference,
+        bam = "data/4-sorted_reads/{sample}.bam",
+        bam_index = "data/4-sorted_reads/{sample}.bam.bai",
+        whitelist = get_whitelist
+    output:
+        "data/5-umi_maps/{sample}_Paired_UMIs_read_names.csv"
+    params:
+        motif = get_motif,
+        min_length = get_min_length
+    message: "Mapping UMIs for {wildcards.sample}"
+    shell:
+        """
+        belt umi-map \
+            --reference {input.reference} \
+            --alignment {input.bam} \
+            --min_read_length {params.min_length} \
+            --motif "{params.motif}" \
+            --whitelist {input.whitelist} \
+            --output_dir data/5-umi_maps
+        """
+
+#########################################################
+# Rule: umi_group
+# Group reads by UMI and filter by threshold
+#########################################################
+
+rule umi_group:
+    input:
+        reference = get_reference,
+        bam = "data/4-sorted_reads/{sample}.bam",
+        umi_csv = "data/5-umi_maps/{sample}_Paired_UMIs_read_names.csv"
+    output:
+        "data/6-umi_groups/{sample}.grouped.bam"
+    params:
+        threshold = 10  # Minimum reads per UMI group (low threshold for demo)
+    message: "Grouping UMIs for {wildcards.sample}"
+    shell:
+        """
+        belt umi-group \
+            --reference {input.reference} \
+            --alignment {input.bam} \
+            --corrected_umis {input.umi_csv} \
+            --grouping UMI1 \
+            --threshold {params.threshold} \
+            --output_dir data/6-umi_groups
+        """
+
+#########################################################
+# Rule: consensus_call
+# Call consensus sequences for each UMI group
+#########################################################
+
+rule consensus_call:
+    input:
+        grouped_bam = "data/6-umi_groups/{sample}.grouped.bam",
+        reference = get_consensus_reference
+    output:
+        fasta_dir = directory("data/7-consensus_calls/{sample}/fasta"),
+        bam_dir = directory("data/7-consensus_calls/{sample}/bam")
+    threads: 2
+    log:
+        "logs/consensus/{sample}.log"
+    message: "Calling consensus for {wildcards.sample}"
+    shell:
+        """
+        belt consensus \
+            --grouped-bam {input.grouped_bam} \
+            --reference {input.reference} \
+            --output-dir data/7-consensus_calls/{wildcards.sample} \
+            --sample {wildcards.sample} \
+            --threads {threads} \
+            >> {log} 2>&1
+        """
+
+#########################################################
+# Rule: compile_consensus
+# Compile all consensus sequences for a sample
+#########################################################
+
+rule compile_consensus:
+    input:
+        fasta_dir = "data/7-consensus_calls/{sample}/fasta"
+    output:
+        "data/8-compiled_consensus/{sample}-compiled-consensus.fa"
+    message: "Compiling consensus for {wildcards.sample}"
+    shell:
+        """
+        cat {input.fasta_dir}/*.fasta > {output}
+        """
+
+#########################################################
+# Rule: demo_summary
+# Generate a summary of the demo results
+#########################################################
+
+rule demo_summary:
+    input:
+        fastq_filtered = expand("data/2-fastq_filtered/{sample}.fastq", sample=config["samples"]),
+        umi_maps = expand("data/5-umi_maps/{sample}_Paired_UMIs_read_names.csv", sample=config["samples"]),
+        umi_groups = list_all_umi_groups(),
+        consensus = list_all_consensus()
+    output:
+        "demo_summary.txt"
+    params:
+        n_samples = len(config["samples"]),
+        sample_list = ", ".join(config["samples"].keys())
+    message: "Generating demo summary"
+    shell:
+        """
+        echo "BELT Demo Pipeline Results" > {output}
+        echo "=========================" >> {output}
+        echo "" >> {output}
+        echo "Samples processed: {params.n_samples}" >> {output}
+        echo "Samples: {params.sample_list}" >> {output}
+        echo "" >> {output}
+        echo "Pipeline Steps Completed:" >> {output}
+        echo "1. Quality filtering: $(ls data/2-fastq_filtered/*.fastq | wc -l) files" >> {output}
+        echo "2. Read mapping: $(ls data/4-sorted_reads/*.bam | wc -l) files" >> {output}
+        echo "3. UMI extraction: $(ls data/5-umi_maps/*.csv | wc -l) files" >> {output}
+        echo "4. UMI grouping: $(ls data/6-umi_groups/*.bam | wc -l) files" >> {output}
+        echo "5. Consensus calling: $(ls data/8-compiled_consensus/*.fa | wc -l) files" >> {output}
+        echo "" >> {output}
+        echo "Output Files:" >> {output}
+        for f in data/8-compiled_consensus/*.fa; do
+            echo "  - $f" >> {output}
+        done
+        echo "" >> {output}
+        echo "Demo completed successfully!" >> {output}
+        echo "Check the data/ directories for detailed results." >> {output}
+        """
+

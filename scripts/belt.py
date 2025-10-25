@@ -214,12 +214,23 @@ def map(reference, fastq, output_dir, min_length, min_quality, threads, config, 
 @click.option('--reference', required=True, help="Reference genome fasta file")
 @click.option('--alignment', required=True, help="Input BAM file")
 @click.option('--min_read_length', default=2000, type=int, help="Minimum expected read length")
-@click.option('--motif', required=True, help="Motif for UMI extraction")
+@click.option('--motif', required=False, default=["NNNNNNNNNNNN"], help="Barcode motif sequence(s) - can be a single motif or list of motifs")
 @click.option('--output_dir', required=True, help="Output directory")
-@click.option('--analysis_out', required=False, default="analysis", help="Analysis output directory")
-def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir, analysis_out):
+@click.option('--max_distance', required=False, default=1, type=int, help="Maximum hamming distance for whitelist mapping")
+def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir, max_distance):
     """Map UMIs to a whitelist and generate paired UMI output from BAM files"""
-    umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir, analysis_out)
+    # Parse motif if it's a string representation of a list
+    if isinstance(motif, str):
+        import ast
+        try:
+            motif = ast.literal_eval(motif)
+        except (ValueError, SyntaxError):
+            # If parsing fails, treat as single motif
+            motif = [motif]
+    elif not isinstance(motif, list):
+        motif = [motif]
+    
+    umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir, max_distance)
 
 
 @main.command(name='umi-group')
@@ -227,7 +238,7 @@ def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir,
 @click.option('--alignment', required=True, help="Input BAM file")
 @click.option('--corrected_umis', required=True, help="Path to the corrected UMIs file")
 @click.option('--output_dir', required=True, help="Output directory")
-@click.option('--grouping', required=True, type=click.Choice(['5pUMI', '3pUMI']), help="Grouping method (5pUMI or 3pUMI)")
+@click.option('--grouping', required=True, help="UMI column to group by (e.g., UMI1, UMI2, 5pUMI, 3pUMI)")
 @click.option('--threshold', default=10, type=int, help="Threshold for grouping")
 
 
@@ -240,11 +251,22 @@ def umi_group(reference, alignment, corrected_umis, output_dir, grouping, thresh
 @click.option('--reference', required=True, help="Reference genome fasta file")
 @click.option('--alignment', required=True, help="Input BAM file")
 @click.option('--min_read_length', default=250, type=int, help="Minimum expected read length")
-@click.option('--motif', required=True, help="Motif for UMI extraction")
+@click.option('--motif', required=False, default=["NNNNNNNNNNNN"], help="Barcode motif sequence(s) - can be a single motif or list of motifs")
 @click.option('--cluster_method', default="default", help="Clustering method for whitelist generation")
 @click.option('--output_dir', required=True, help="Output directory")
 def whitelist(reference, alignment, min_read_length, motif, cluster_method, output_dir):
     """Generate a whitelist of UMIs"""
+    # Parse motif if it's a string representation of a list
+    if isinstance(motif, str):
+        import ast
+        try:
+            motif = ast.literal_eval(motif)
+        except (ValueError, SyntaxError):
+            # If parsing fails, treat as single motif
+            motif = [motif]
+    elif not isinstance(motif, list):
+        motif = [motif]
+    
     umi_whitelist(reference, alignment, min_read_length, motif, cluster_method, output_dir)
 
 
