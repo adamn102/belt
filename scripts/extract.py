@@ -1,5 +1,7 @@
 import sys
 import os
+import pandas as pd
+from pathlib import Path
 
 # Add the current directory to the path so we can import local modules
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -18,79 +20,99 @@ except ImportError:
 
 import pysam
 from Bio import SeqIO
-import os
-import pandas as pd
 
-def extract_umis(reference, alignedReads, minReadLength, barcodeMotifs, outputPath):
-    sampleName: object = alignedReads.split("/")[-1].split(".")[0]
+def extract_umis(reference: str, aligned_reads: str, min_read_length: int, barcode_motifs: list, output_path: str) -> None:
+    """
+    Extract UMIs from aligned BAM files based on barcode motifs.
+    
+    Args:
+        reference: Path to reference FASTA file
+        aligned_reads: Path to input BAM file
+        min_read_length: Minimum read length to process
+        barcode_motifs: List of barcode motif sequences
+        output_path: Output directory or file path
+    """
+    sample_name = Path(aligned_reads).stem
 
-    # Check if outputPath is a directory or a file
-    if outputPath.endswith('.csv'):
+    # Check if output_path is a directory or a file
+    if output_path.endswith('.csv'):
         # Direct file path - create parent directory if needed
-        output_dir = os.path.dirname(outputPath)
+        output_dir = os.path.dirname(output_path)
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir)
-        csv_file = outputPath
+        csv_file = output_path
     else:
         # Directory path - create directory and use default filename
-        if not os.path.exists(outputPath):
-            os.makedirs(outputPath)
-        csv_file = os.path.join(outputPath, f"{sampleName}.belt_extract.csv")
+        if not os.path.exists(output_path):
+            os.makedirs(output_path)
+        csv_file = os.path.join(output_path, f"{sample_name}.belt_extract.csv")
 
-    # Initializing ttools
+    # Initializing tools
     logger = log()
-    logger.log_message(f"UMI extraction of {sampleName} with {len(barcodeMotifs)} barcode motifs started.")
-    motif_indices, raw_UMI_dict = findUMI(reference, alignedReads, barcodeMotifs, minReadLength)
+    logger.log_message(f"UMI extraction of {sample_name} with {len(barcode_motifs)} barcode motifs started.")
+    motif_indices, raw_UMI_dict = findUMI(reference, aligned_reads, barcode_motifs, min_read_length)
                                                                        
     if motif_indices is None or raw_UMI_dict is None:
         logger.log_message("UMI extraction failed. Please check the input files and parameters.")
         return
     
     logger.log_message(f"Found motifs at indices: {motif_indices}")
-    logger.log_message(f"UMI extraction of {sampleName} with {len(barcodeMotifs)} barcode motifs finished.")
-    # Write csv files with the extracted UMIs
-    # write_csv(["5' UMI Raw", "3' UMI Raw"], [raw_umi5_list, raw_umi3_list], f"{outputDir}/{sampleName}_rawUMIs.csv")
+    logger.log_message(f"UMI extraction of {sample_name} with {len(barcode_motifs)} barcode motifs finished.")
 
-    # write raw_UMI_dict as a .csv with the read names as the first column,
-    # and UMI columns for each motif found
-    # do this using pandas
-    umi_columns = [f"UMI{i+1}" for i in range(len(barcodeMotifs))]
+    # Write csv files with the extracted UMIs
+    umi_columns = [f"UMI{i+1}" for i in range(len(barcode_motifs))]
     df = pd.DataFrame.from_dict(raw_UMI_dict, orient='index', columns=umi_columns)
     df.index.name = 'Read Name'
     df.reset_index(inplace=True)
     df.to_csv(csv_file, index=False)
 
 
-def findUMI(reference, alignedReads, barcodeMotifs, minReadLength):
+def findUMI(reference: str, aligned_reads: str, barcode_motifs: list, min_read_length: int) -> tuple:
     """
-    Extracts UMI from the aligned reads based on the provided barcode motifs.
-    Finds all motifs in one direction and extracts UMIs from all positions.
+    Extract UMI from aligned reads based on provided barcode motifs.
+    Finds all motifs in sequence and extracts UMIs from all positions.
+    
+    Args:
+        reference: Path to reference FASTA file
+        aligned_reads: Path to input BAM file
+        barcode_motifs: List of barcode motif sequences
+        min_read_length: Minimum read length to process
+        
+    Returns:
+        Tuple of (motif_indices, raw_UMI_dict) or (None, None) if failed
     """
     # Convert single motif to list for backward compatibility
-    if isinstance(barcodeMotifs, str):
-        barcodeMotifs = [barcodeMotifs]
+    if isinstance(barcode_motifs, str):
+        barcode_motifs = [barcode_motifs]
     
-    # Initializing variables
+    # Initialize variables
     raw_UMI_dict = {}
-    input_bam = alignedReads
-
-    if not input_bam.endswith('.bam'):
-        print(f"Input file {input_bam} is not a BAM file.")
+    
+    # Validate input files
+    if not aligned_reads.endswith('.bam'):
+        print(f"Input file {aligned_reads} is not a BAM file.")
         return None, None
     if not reference.endswith('.fasta') and not reference.endswith('.fa'):
         print(f"Reference file {reference} is not a FASTA file.")
         return None, None
 
     # Read reference sequence and find all motif positions
-    with open(reference, "r") as ref_file:
-        ref_seq = str(SeqIO.read(ref_file, "fasta").seq)
+    try:
+        with open(reference, "r") as ref_file:
+            ref_seq = str(SeqIO.read(ref_file, "fasta").seq)
+    except FileNotFoundError:
+        print(f"Reference file {reference} not found.")
+        return None, None
+    except Exception as e:
+        print(f"Error reading reference file {reference}: {e}")
+        return None, None
     
     motif_indices = []
     motif_lengths = []
     
     # Find motif positions sequentially (each motif gets the next available position)
     start_search = 0
-    for i, motif in enumerate(barcodeMotifs):
+    for i, motif in enumerate(barcode_motifs):
         motif_length = len(motif)
         motif_lengths.append(motif_length)
         
@@ -119,72 +141,53 @@ def findUMI(reference, alignedReads, barcodeMotifs, minReadLength):
     max_pos = max(all_positions) + max(motif_lengths)
     
     # Extract UMIs from all motif positions
-    bamfile = pysam.AlignmentFile(input_bam, "rb")
-    
-    for read in bamfile.fetch(start=min_pos, end=max_pos):
-        if read.query_sequence is None or len(read.query_sequence) < minReadLength:
-            continue  # Skip reads without sequence
+    try:
+        bamfile = pysam.AlignmentFile(aligned_reads, "rb")
         
-        ref_positions = read.get_reference_positions(full_length=True)
-        read_umis = [None] * len(barcodeMotifs)  # Initialize with None for each motif
-        
-        # Extract UMI for each motif at each position
-        for motif_idx, (motif, positions, motif_length) in enumerate(zip(barcodeMotifs, motif_indices, motif_lengths)):
-            for pos in positions:
-                umi_start = pos + 1  # 1-based reference coordinate
-                umi_end = pos + motif_length  # exclusive
+        for read in bamfile.fetch(start=min_pos, end=max_pos):
+            if read.query_sequence is None or len(read.query_sequence) < min_read_length:
+                continue  # Skip reads without sequence
+            
+            ref_positions = read.get_reference_positions(full_length=True)
+            read_umis = [None] * len(barcode_motifs)  # Initialize with None for each motif
+            
+            # Extract UMI for each motif at each position
+            for motif_idx, (motif, positions, motif_length) in enumerate(zip(barcode_motifs, motif_indices, motif_lengths)):
+                for pos in positions:
+                    umi_start = pos + 1  # 1-based reference coordinate
+                    umi_end = pos + motif_length  # exclusive
+                    
+                    # Find query indices corresponding to this UMI region
+                    query_start = None
+                    query_end = None
+                    
+                    for i, ref_pos in enumerate(ref_positions):
+                        if ref_pos == umi_start - 1 and query_start is None:
+                            query_start = i
+                        if ref_pos == umi_end - 1:
+                            query_end = i + 1  # end is exclusive
+                            break
+                    
+                    if query_start is not None and query_end is not None:
+                        seq = read.query_sequence[query_start:query_end]
+                        if len(seq) == motif_length:
+                            read_umis[motif_idx] = seq
+                            break  # Use first valid UMI for this motif
+            
+            # Only add to dictionary if at least one UMI was found
+            if any(umi is not None for umi in read_umis):
+                raw_UMI_dict[read.query_name] = read_umis
                 
-                # Find query indices corresponding to this UMI region
-                query_start = None
-                query_end = None
-                
-                for i, ref_pos in enumerate(ref_positions):
-                    if ref_pos == umi_start - 1 and query_start is None:
-                        query_start = i
-                    if ref_pos == umi_end - 1:
-                        query_end = i + 1  # end is exclusive
-                        break
-                
-                if query_start is not None and query_end is not None:
-                    seq = read.query_sequence[query_start:query_end]
-                    if len(seq) == motif_length:
-                        read_umis[motif_idx] = seq
-                        break  # Use first valid UMI for this motif
-        
-        # Only add to dictionary if at least one UMI was found
-        if any(umi is not None for umi in read_umis):
-            raw_UMI_dict[read.query_name] = read_umis
-
-    bamfile.close()
+    except Exception as e:
+        print(f"Error opening BAM file {aligned_reads}: {e}")
+        return None, None
+    finally:
+        if 'bamfile' in locals():
+            bamfile.close()
     
     # Flatten motif_indices for return (just the positions, not grouped by motif)
     flat_indices = []
     for positions in motif_indices:
         flat_indices.extend(positions)
     
-
     return flat_indices, raw_UMI_dict
-
-
-def write_csv(headers, data, output_file):
-    """
-    Writes headers and data to a CSV file.
-    Handles columns of unequal length by filling missing values with empty strings.
-
-    :param headers: List of column headers.
-    :param data: List of lists, where each sublist is a column.
-    :param output_file: Path to the output CSV file.
-    """
-    import csv
-    # Transpose columns to rows, filling missing values with ''
-    max_len = max(len(col) for col in data)
-    rows = []
-    for i in range(max_len):
-        row = []
-        for col in data:
-            row.append(col[i] if i < len(col) else '')
-        rows.append(row)
-    with open(output_file, 'w', newline='') as csvfile:
-        writer = csv.writer(csvfile)
-        writer.writerow(headers)
-        writer.writerows(rows)
