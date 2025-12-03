@@ -106,6 +106,7 @@ def long_read_umi_grouping_fast(
     if gcol == "UMI1" and ("UMI2" in df.columns):
         umi2_filter_applied = True
         passing_umi1_values = []
+        umi1_majority_counts = {}  # Track majority counts for each passing UMI1
         # Ensure UMI2 invalid placeholders are NA for counting
         df["UMI2"] = df["UMI2"].replace(["", "NoMatch", "NoBarcode"], pd.NA)
         
@@ -129,9 +130,16 @@ def long_read_umi_grouping_fast(
             if majority_fraction >= umi2_majority_threshold and majority_count >= threshold:
                 passing_umi1_values.append(umi1_value)
                 umi1_to_majority_umi2[umi1_value] = majority_umi2
+                umi1_majority_counts[umi1_value] = majority_count
                 reads_after_umi2_filter += majority_count
         
-        keepers = keepers.loc[keepers.index.isin(passing_umi1_values)]
+        # Update keepers to use majority counts instead of original counts
+        if umi1_majority_counts:
+            # Create new Series with majority counts for passing groups
+            keepers = pd.Series(umi1_majority_counts, name=keepers.name)
+        else:
+            # No groups passed, filter keepers to empty
+            keepers = keepers.loc[keepers.index.isin(passing_umi1_values)]
         groups_passing_umi2 = int(len(keepers))
         groups_passing_threshold = int(counts[counts >= threshold].shape[0])
         fraction_passing_umi2 = (

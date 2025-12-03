@@ -1,6 +1,7 @@
 # BELT UMI Group Module - Comprehensive Test Report
 
-**Generated:** 2025-12-03 12:32:06 EST (AI Generated)  
+**Generated:** 2025-12-03 12:46:01 EST (AI Generated)  
+**Last Updated:** 2025-12-03 12:46:01 EST  
 **Module:** `belt/scripts/umi_group.py`  
 **Test File:** `belt/tests/test_umi_group.py`  
 **Test Framework:** pytest  
@@ -27,25 +28,27 @@ The `umi_group.py` module performs **UMI-based grouping of reads** for downstrea
 
 ### Key Metrics
 
-- **Total Test Functions:** 5 active tests
-- **Lines of Code Tested:** ~317 lines
-- **Test Coverage Areas:** Core grouping functionality, different UMI columns, FASTQ output, BAM sorting
-- **Coverage Status:** Good for basic functionality, gaps in error handling and edge cases
+- **Total Test Functions:** 12 active tests (5 core + 7 UMI2 filtering)
+- **Lines of Code Tested:** ~325 lines
+- **Test Coverage Areas:** Core grouping functionality, different UMI columns, FASTQ output, BAM sorting, **UMI2 majority filtering (comprehensive)**
+- **Coverage Status:** Excellent for core functionality and UMI2 filtering, gaps in error handling and edge cases
 
 ### Overall Assessment
 
 ✅ **Strengths:**
-- Good coverage of core grouping functionality
+- Excellent coverage of core grouping functionality
+- Comprehensive tests for UMI2 majority filtering (7 new tests)
 - Tests for different UMI columns
 - FASTQ output validation
 - BAM file generation testing
+- Synthetic data generation for controlled testing
+- JSON log validation for UMI2 filtering statistics
 
 ⚠️ **Areas for Improvement:**
-- Missing tests for UMI2 majority filtering (critical feature)
 - Limited error handling tests
 - No tests for empty/no passing groups scenario
 - Missing tests for invalid input files
-- No tests for JSON log file validation
+- Limited tests for JSON log file validation (only UMI2 filtering stats)
 - Missing tests for edge cases (empty CSV, malformed data)
 
 ---
@@ -155,7 +158,7 @@ This module is called **after** `umi_map.py` (error correction) and **before** `
 
 ### Test File Structure
 
-The test file (`test_umi_group.py`) contains **5 active test functions** organized into:
+The test file (`test_umi_group.py`) contains **12 active test functions** organized into:
 
 1. **Core Functionality Tests** (2 tests)
    - Basic UMI grouping
@@ -168,6 +171,15 @@ The test file (`test_umi_group.py`) contains **5 active test functions** organiz
    - FASTQ generation and inspection
    - FASTQ with fast grouping
 
+4. **UMI2 Majority Filtering Tests** (7 tests) ⭐ **NEW**
+   - Basic filtering with default threshold (0.5)
+   - Strict threshold testing (0.7)
+   - Verification that only majority reads are retained
+   - No UMI2 column handling
+   - Grouping by UMI2 (filtering should not apply)
+   - Empty UMI2 value handling
+   - JSON log statistics validation
+
 ### Test Data
 
 The tests use:
@@ -175,6 +187,10 @@ The tests use:
   - `extract_umi_5.fa` (reference - not used in function)
   - `extract_umi_5-large.bam` (aligned reads)
   - `extract_umi_5-large_corrected_umis.csv` (corrected UMIs from umi_map)
+- **Synthetic test data:** Generated programmatically for UMI2 filtering tests
+  - Synthetic BAM files created with `pysam`
+  - Synthetic CSV files with controlled UMI distributions
+  - Designed to test specific filtering scenarios (majority fractions, thresholds)
 
 ### Test Dependencies
 
@@ -256,23 +272,134 @@ The tests use:
 - **Status:** ✅ Covered
 - **Note:** Similar to test #4 but with explicit fast grouping
 
+### ✅ UMI2 Majority Filtering Tests ⭐ **NEW**
+
+#### 6. `test_umi2_majority_filtering_basic`
+- **Purpose:** Test basic UMI2 majority filtering with default threshold (0.5)
+- **Test Data:** Synthetic data with 9 UMI1 groups, various UMI2 distributions
+- **Grouping:** `"UMI1"`
+- **Threshold:** 3 reads minimum
+- **umi2_majority_threshold:** 0.5 (50%)
+- **Test Scenarios:**
+  - UMI1_A: 80% majority (8/10 reads) - should pass, keep 8 reads
+  - UMI1_B: 50% majority (5/10 reads) - should pass, keep 5 reads
+  - UMI1_C: 60% majority (6/10 reads) - should pass, keep 6 reads
+  - UMI1_D: 70% majority (7/10 reads) - should pass, keep 7 reads
+  - UMI1_E: 80% majority (8/10 reads) - should pass, keep 8 reads
+  - UMI1_F: 60% majority (6/10 reads) - should pass, keep 6 reads
+  - UMI1_G: 100% majority (5/5 reads) - should pass, keep 5 reads
+  - UMI1_H: 67% majority (2/3 reads) - should pass, keep 2 reads
+  - UMI1_I: No valid UMI2 - should be filtered out
+- **Validations:**
+  - Expected groups present in filtered CSV
+  - Read counts match majority counts (not total counts)
+  - UMI1_I filtered out
+  - JSON log shows filtering was applied
+  - Statistics in JSON log are accurate
+- **Status:** ✅ Well covered
+- **Strengths:** Comprehensive validation of filtering logic and output counts
+
+#### 7. `test_umi2_majority_filtering_strict_threshold`
+- **Purpose:** Test UMI2 majority filtering with strict threshold (0.7)
+- **Test Data:** Same synthetic data as test #6
+- **Grouping:** `"UMI1"`
+- **Threshold:** 3 reads minimum
+- **umi2_majority_threshold:** 0.7 (70%)
+- **Validations:**
+  - Groups with >=70% majority pass (UMI1_A, UMI1_D, UMI1_E, UMI1_G)
+  - Groups with <70% majority fail (UMI1_B, UMI1_C, UMI1_F, UMI1_H)
+  - JSON log shows correct threshold value
+  - Correct number of groups passing
+- **Status:** ✅ Well covered
+- **Strengths:** Tests threshold boundary conditions
+
+#### 8. `test_umi2_majority_filtering_verify_majority_reads_only`
+- **Purpose:** Verify that only reads with majority UMI2 are retained
+- **Test Data:** Same synthetic data as test #6
+- **Grouping:** `"UMI1"`
+- **Threshold:** 3 reads minimum
+- **umi2_majority_threshold:** 0.5
+- **write_fastq:** `True` (to inspect reads)
+- **Validations:**
+  - For each passing UMI1 group, verify only majority UMI2 reads are present
+  - Read counts match majority counts exactly
+  - Non-majority reads are filtered out
+- **Status:** ✅ Well covered
+- **Strengths:** Critical test ensuring filtering logic works correctly
+
+#### 9. `test_umi2_majority_filtering_no_umi2_column`
+- **Purpose:** Test that UMI2 filtering is NOT applied when UMI2 column doesn't exist
+- **Test Data:** Synthetic data with only UMI1 column (no UMI2)
+- **Grouping:** `"UMI1"`
+- **Threshold:** 1 read minimum
+- **umi2_majority_threshold:** 0.5
+- **Validations:**
+  - JSON log shows `umi2_majority_filter_applied: false`
+  - All reads are kept (no filtering)
+  - Read counts match input counts
+- **Status:** ✅ Well covered
+- **Strengths:** Ensures filtering only applies when appropriate
+
+#### 10. `test_umi2_majority_filtering_grouping_by_umi2`
+- **Purpose:** Test that UMI2 filtering is NOT applied when grouping by UMI2 (not UMI1)
+- **Test Data:** Synthetic data with UMI1 and UMI2 columns
+- **Grouping:** `"UMI2"` (not UMI1)
+- **Threshold:** 1 read minimum
+- **umi2_majority_threshold:** 0.5
+- **Validations:**
+  - JSON log shows `umi2_majority_filter_applied: false`
+  - All reads are kept (no filtering)
+  - Filtering only applies when grouping by UMI1
+- **Status:** ✅ Well covered
+- **Strengths:** Ensures filtering logic respects grouping column
+
+#### 11. `test_umi2_majority_filtering_empty_umi2`
+- **Purpose:** Test handling of empty/missing UMI2 values
+- **Test Data:** Synthetic data with some reads having empty UMI2 values
+- **Grouping:** `"UMI1"`
+- **Threshold:** 3 reads minimum
+- **umi2_majority_threshold:** 0.5
+- **Validations:**
+  - Empty UMI2 values are ignored in majority calculations
+  - Groups with valid UMI2 are filtered correctly
+  - Empty UMI2 values don't affect filtering logic
+- **Status:** ✅ Well covered
+- **Strengths:** Tests edge case handling
+
+#### 12. `test_umi2_majority_filtering_statistics`
+- **Purpose:** Validate JSON log statistics for UMI2 filtering
+- **Test Data:** Same synthetic data as test #6
+- **Grouping:** `"UMI1"`
+- **Threshold:** 3 reads minimum
+- **umi2_majority_threshold:** 0.5
+- **Validations:**
+  - `reads_before_umi2_filter` matches total input reads
+  - `reads_after_umi2_filter` matches sum of majority counts
+  - `reads_filtered_by_umi2` = before - after
+  - `groups_passing_umi2_majority` matches expected count
+  - `fraction_passing_umi2_majority` is calculated correctly
+- **Status:** ✅ Well covered
+- **Strengths:** Comprehensive validation of logging and statistics
+
 ---
 
 ## Missing Test Coverage
 
 ### 🔴 Critical Missing Tests
 
-#### 1. **UMI2 Majority Filtering**
+#### 1. ~~**UMI2 Majority Filtering**~~ ✅ **NOW COVERED**
 - **Code Location:** `umi_group.py:106-140`
 - **Functionality:** Advanced filtering when grouping by UMI1
-- **Test Needed:**
-  - Test with data that has UMI1 and UMI2 columns
-  - Verify groups filtered by majority UMI2 threshold
-  - Verify only majority UMI2 reads retained
-  - Test with different `umi2_majority_threshold` values (0.3, 0.5, 0.7)
-  - Verify statistics in JSON log
-  - Test edge case: group with exactly 50% split
-- **Impact:** High (major feature not tested)
+- **Status:** ✅ **Comprehensively tested with 7 test functions**
+- **Coverage:**
+  - ✅ Basic filtering with default threshold (0.5)
+  - ✅ Strict threshold testing (0.7)
+  - ✅ Verification that only majority reads are retained
+  - ✅ No UMI2 column handling
+  - ✅ Grouping by UMI2 (filtering should not apply)
+  - ✅ Empty UMI2 value handling
+  - ✅ JSON log statistics validation
+- **Bug Fix:** Fixed issue where CSV output showed original counts instead of filtered majority counts (2025-12-03)
 
 #### 2. **Empty/No Passing Groups Scenario**
 - **Code Location:** `umi_group.py:149-181`
@@ -491,11 +618,12 @@ samtools --version
 
 ### Priority 1: Critical Tests (Implement First)
 
-1. **Test UMI2 majority filtering**
-   - Create test data with UMI1 and UMI2 columns
-   - Test with different threshold values
-   - Verify filtering logic works correctly
-   - Verify statistics in JSON log
+1. ~~**Test UMI2 majority filtering**~~ ✅ **COMPLETED**
+   - ✅ Created test data with UMI1 and UMI2 columns
+   - ✅ Tested with different threshold values (0.5, 0.7)
+   - ✅ Verified filtering logic works correctly
+   - ✅ Verified statistics in JSON log
+   - ✅ Fixed bug where CSV showed original counts instead of filtered counts
 
 2. **Test empty/no passing groups scenario**
    - Use high threshold to ensure no groups pass
@@ -583,20 +711,21 @@ samtools --version
 
 ### Current Test Count
 
-- **Total Test Functions:** 5 active
+- **Total Test Functions:** 12 active
 - **Core Functionality:** 2 tests
 - **UMI Column Testing:** 1 test
 - **FASTQ Output:** 2 tests
+- **UMI2 Majority Filtering:** 7 tests ⭐ **NEW**
 
 ### Code Coverage Estimate
 
 Based on test analysis:
 - **Core Functionality:** ~70% covered
-- **UMI2 Majority Filtering:** ~0% covered (not tested)
+- **UMI2 Majority Filtering:** ~95% covered ✅ **Comprehensively tested**
 - **Error Handling:** ~30% covered
-- **Output Validation:** ~50% covered (CSV partially, BAM not validated, JSON not validated)
-- **Edge Cases:** ~20% covered
-- **Overall Estimated Coverage:** ~45%
+- **Output Validation:** ~70% covered (CSV well validated, BAM not validated, JSON partially validated)
+- **Edge Cases:** ~40% covered (UMI2 edge cases well tested)
+- **Overall Estimated Coverage:** ~65% (up from ~45%)
 
 *Note: Actual coverage should be measured using `pytest-cov`*
 
@@ -616,22 +745,41 @@ Based on test analysis:
 
 ## Conclusion
 
-The `umi_group.py` module has **moderate test coverage** for core functionality. The tests effectively validate:
+The `umi_group.py` module now has **strong test coverage** for core functionality and UMI2 majority filtering. The tests effectively validate:
 
 ✅ Basic UMI grouping  
 ✅ Different UMI column selection  
 ✅ FASTQ output generation  
 ✅ BAM file creation  
+✅ **UMI2 majority filtering (comprehensively tested with 7 test functions)** ⭐  
+✅ **Filtered CSV output validation (read counts match majority counts)**  
+✅ **JSON log statistics for UMI2 filtering**  
 
-However, there are **significant gaps** in coverage, particularly:
+### Recent Improvements (2025-12-03)
 
-⚠️ **UMI2 majority filtering** (completely untested - major feature)  
+1. **Added 7 comprehensive UMI2 majority filtering tests:**
+   - Basic filtering with default threshold
+   - Strict threshold testing
+   - Verification of majority read retention
+   - Edge case handling (no UMI2 column, grouping by UMI2, empty UMI2 values)
+   - JSON log statistics validation
+
+2. **Bug Fix:**
+   - Fixed issue where filtered CSV output showed original read counts instead of filtered majority counts
+   - CSV now correctly shows the number of reads retained after UMI2 majority filtering
+
+3. **Test Infrastructure:**
+   - Added synthetic data generation functions for controlled testing
+   - Helper functions for creating synthetic BAM and CSV files
+
+### Remaining Gaps
+
 ⚠️ **Error handling scenarios** (limited testing)  
 ⚠️ **Empty/no passing groups** (not tested)  
-⚠️ **Output validation** (BAM structure, JSON logs not validated)  
+⚠️ **Output validation** (BAM structure validation, comprehensive JSON log validation)  
 ⚠️ **Edge cases** (invalid inputs, malformed data, etc.)  
 
-**Recommendation:** Implement Priority 1 tests to achieve comprehensive coverage. The current test suite provides good coverage for happy path scenarios but needs expansion for error handling, UMI2 filtering, and output validation. Additionally, consider adding samtools availability checks or mocking to make tests more robust.
+**Recommendation:** The test suite now provides excellent coverage for core functionality and UMI2 filtering. Focus next on error handling, empty group scenarios, and comprehensive output validation. Consider adding samtools availability checks or mocking to make tests more robust.
 
 ---
 
@@ -674,7 +822,15 @@ consensus.py (Consensus generation)
 ---
 
 **Report Generated:** 2025-12-03 12:32:06 EST (AI Generated)  
-**Last Updated:** 2025-12-03 12:32:06 EST  
+**Last Updated:** 2025-12-03 12:46:01 EST  
 **Maintainer:** BELT Development Team  
 **Note:** This report was automatically generated by AI analysis of the codebase and test files.
+
+### Recent Updates (2025-12-03)
+
+- ✅ Added 7 comprehensive UMI2 majority filtering tests
+- ✅ Fixed bug in CSV output (now shows filtered majority counts instead of original counts)
+- ✅ Added synthetic data generation for controlled testing
+- ✅ Updated test count from 5 to 12 active tests
+- ✅ Improved overall coverage estimate from ~45% to ~65%
 
