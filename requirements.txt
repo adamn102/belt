@@ -1,9 +1,24 @@
+# Core dependencies
 click>=8.0.0
 pyyaml>=6.0
-pysam>=0.20.0
 pandas>=2.0.0
+numpy>=1.24.0
 biopython>=1.80
-mappy>=2.30
-plotly>=5.0.0
+
+# BAM/SAM file handling
+pysam>=0.20.0
+
+# UMI tools
 umi-tools>=1.1.0
+pybktree>=1.1
+
+# Visualization
+plotly>=5.0.0
+matplotlib>=3.7.0
+
+# Web application (for mutation_visualizer.py)
+dash>=2.14.0
+dash-bootstrap-components>=1.5.0
+
+# Testing
 pytest>=7.0.0

@@ -28,6 +28,9 @@ def main():
     """BELT - BalazsLab ERRSeq Long-Read Toolkit"""
     pass
 
+################################################################################
+# Extract - Extract reads based on motifs and UMIs from aligned BAM files
+################################################################################
 
 @main.command()
 @click.option('--reference', required=True, help="Reference genome fasta file")

@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """
 Comprehensive pytest test file for BELT extract function
-Consolidated from multiple test files with enhanced coverage
 """
 import os
 import sys
 import pytest
 import pandas as pd
 import tempfile
-import shutil
 from pathlib import Path
 
 # Add the scripts directory to the path
