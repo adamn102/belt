@@ -517,12 +517,31 @@ Final Consensus FASTA
    - Combined SNP + deletion
    - Combined insertions + deletions
 
+### Test File 3: `test_consensus_snp_frequency.py`
+
+**Total Tests:** ~50+ test functions across 2 test classes
+
+#### Test Classes:
+
+1. **TestSNPFrequencyCalling** (23+ parameterized tests)
+   - Tests SNP calling at frequencies from 1% to 99%
+   - Validates consensus sequence contains SNP when frequency is high enough
+   - Validates VCF file contains SNP variant
+   - Tests help determine minimum read fraction for SNP calling
+   - **Key Feature:** Tests SNP calling sensitivity across the full frequency spectrum
+
+2. **TestSNPFrequencyThreshold** (1 analysis test)
+   - Analyzes all frequency tests to determine minimum threshold
+   - Generates summary report of SNP calling across frequencies
+   - Identifies the minimum read fraction where SNPs are called
+
 ### Coverage Statistics
 
 - **Unit Tests:** 15+ tests (function-level testing)
 - **Integration Tests:** 5+ tests (end-to-end pipeline)
 - **Mutation Tests:** 24+ parameterized tests (comprehensive mutation coverage)
 - **Simulated Data Tests:** 26+ tests (realistic data scenarios)
+- **SNP Frequency Tests:** 23+ parameterized tests (1% to 99% frequency coverage)
 - **Edge Case Tests:** 5+ tests (error handling, empty inputs)
 
 ---
@@ -601,7 +620,13 @@ Final Consensus FASTA
 
 ### High Priority
 
-1. **CIGAR Detection Edge Cases**
+1. **SNP Frequency Threshold Analysis** ✅ **NEWLY ADDED**
+   - Comprehensive tests for SNP calling at 1% to 99% frequencies
+   - Determines minimum read fraction for SNP calling
+   - Tests both consensus and VCF output
+   - Analysis test summarizes threshold across all frequencies
+
+2. **CIGAR Detection Edge Cases**
    - Overlapping deletions at same position
    - Deletions spanning contig boundaries
    - Very large deletions (>1kb)
@@ -690,6 +715,12 @@ pytest belt/tests/test_consensus_simulated.py::TestSimulatedDeletions::test_dele
 
 # Test combined mutations
 pytest belt/tests/test_consensus_simulated.py::TestCombinedMutations::test_combined_mutations[COMBINED_INDELS] -v
+
+# Test SNP at specific frequency
+pytest belt/tests/test_consensus_snp_frequency.py::TestSNPFrequencyCalling::test_snp_frequency_consensus[SNP_FREQ_050] -v
+
+# Run SNP frequency threshold analysis
+pytest belt/tests/test_consensus_snp_frequency.py::TestSNPFrequencyThreshold::test_snp_frequency_threshold_analysis -v
 ```
 
 ### Prerequisites
@@ -702,8 +733,10 @@ pytest belt/tests/test_consensus_simulated.py::TestCombinedMutations::test_combi
 ### Test Data
 
 - **Simulated BAM files:** `belt/test-data/test_consensus/simulated/`
+- **SNP Frequency BAM files:** `belt/test-data/test_consensus/snp_frequency/`
 - **Reference sequence:** `belt/test-data/test_consensus/0-consensus_reference/LP249.fa`
 - **Output directory:** `belt/test-data/test_consensus/consensus_output_simulated/`
+- **SNP Frequency output:** `belt/test-data/test_consensus/consensus_output_snp_frequency/`
 
 ---
 
