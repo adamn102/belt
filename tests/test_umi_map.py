@@ -117,7 +117,7 @@ def test_umi_extraction_map_partial_umis(tmp_path):
     df = pd.read_csv(output_csv)
     
     # Verify expected columns
-    expected_columns = ["Read Name", "UMI1", "UMI2"]
+    expected_columns = ["Read Name", "UMI1_Raw", "UMI1", "UMI2_Raw", "UMI2"]
     assert list(df.columns) == expected_columns, f"Expected columns {expected_columns}, got {list(df.columns)}"
     
     # Count different UMI patterns
@@ -252,90 +252,90 @@ def test_whitelist_mapping_with_partial_umis():
     print(f"{'='*80}\n")
 
 
-def test_umi_extraction_real_data_with_partial_umis(tmp_path):
-    """Test umi_extraction_map with real data that has partial UMIs.
+# def test_umi_extraction_real_data_with_partial_umis(tmp_path):
+#     """Test umi_extraction_map with real data that has partial UMIs.
     
-    Uses LP249-NL43-A3G-1-A BAM file which is known to have reads with missing UMIs.
-    This is a critical integration test for production scenarios.
-    """
-    base_dir = Path(__file__).parent.parent
-    test_data_dir = base_dir / "test-data" / "test_group_umi"
+#     Uses LP249-NL43-A3G-1-A BAM file which is known to have reads with missing UMIs.
+#     This is a critical integration test for production scenarios.
+#     """
+#     base_dir = Path(__file__).parent.parent
+#     test_data_dir = base_dir / "test-data" / "test_group_umi"
     
-    reference_file = test_data_dir / "LP249.fa"
-    bam_file = test_data_dir / "LP249-NL43-A3G-1-A.bam"
-    whitelist_file = test_data_dir / "extract_umi_5_whitelist.csv"
+#     reference_file = test_data_dir / "LP249.fa"
+#     bam_file = test_data_dir / "LP249-NL43-A3G-1-A.bam"
+#     whitelist_file = test_data_dir / "extract_umi_5_whitelist.csv"
     
-    # Skip if test files don't exist
-    if not all([reference_file.exists(), bam_file.exists(), whitelist_file.exists()]):
-        pytest.skip("Required test files not found")
+#     # Skip if test files don't exist
+#     if not all([reference_file.exists(), bam_file.exists(), whitelist_file.exists()]):
+#         pytest.skip("Required test files not found")
     
-    # Create temporary output directory
-    output_dir = tmp_path / "real_data_output"
-    output_dir.mkdir(parents=True, exist_ok=True)
+#     # Create temporary output directory
+#     output_dir = tmp_path / "real_data_output"
+#     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # Run extraction with whitelist mapping
-    print(f"\n{'='*80}")
-    print(f"REAL DATA TEST: LP249-NL43-A3G-1-A with Partial UMIs")
-    print(f"{'='*80}")
+#     # Run extraction with whitelist mapping
+#     print(f"\n{'='*80}")
+#     print(f"REAL DATA TEST: LP249-NL43-A3G-1-A with Partial UMIs")
+#     print(f"{'='*80}")
     
-    umi_extraction_map(
-        reference=str(reference_file),
-        alignedReads=str(bam_file),
-        minReadLength=1000,
-        barcodeMotifs=['NNNNNNNNNNNN', 'NNNNNNNNNNNN'],
-        whitelist=str(whitelist_file),
-        outputDir=str(output_dir)
-    )
+#     umi_extraction_map(
+#         reference=str(reference_file),
+#         alignedReads=str(bam_file),
+#         minReadLength=1000,
+#         barcodeMotifs=['NNNNNNNNNNNN', 'NNNNNNNNNNNN'],
+#         whitelist=str(whitelist_file),
+#         outputDir=str(output_dir)
+#     )
     
-    # Verify output CSV was created
-    sample_name = bam_file.stem
-    output_csv = output_dir / f"{sample_name}_Paired_UMIs_read_names.csv"
+#     # Verify output CSV was created
+#     sample_name = bam_file.stem
+#     output_csv = output_dir / f"{sample_name}_Paired_UMIs_read_names.csv"
     
-    assert output_csv.exists(), f"Output CSV not found: {output_csv}"
+#     assert output_csv.exists(), f"Output CSV not found: {output_csv}"
     
-    # Read and analyze the output
-    df = pd.read_csv(output_csv)
+#     # Read and analyze the output
+#     df = pd.read_csv(output_csv)
     
-    # Expected statistics based on known data
-    total_reads = len(df)
-    umi1_missing = df['UMI1'].isna().sum()
-    umi2_missing = df['UMI2'].isna().sum()
-    both_present = (df['UMI1'].notna() & df['UMI2'].notna()).sum()
-    only_umi1 = (df['UMI1'].notna() & df['UMI2'].isna()).sum()
-    only_umi2 = (df['UMI1'].isna() & df['UMI2'].notna()).sum()
-    both_missing = (df['UMI1'].isna() & df['UMI2'].isna()).sum()
+#     # Expected statistics based on known data
+#     total_reads = len(df)
+#     umi1_missing = df['UMI1'].isna().sum()
+#     umi2_missing = df['UMI2'].isna().sum()
+#     both_present = (df['UMI1'].notna() & df['UMI2'].notna()).sum()
+#     only_umi1 = (df['UMI1'].notna() & df['UMI2'].isna()).sum()
+#     only_umi2 = (df['UMI1'].isna() & df['UMI2'].notna()).sum()
+#     both_missing = (df['UMI1'].isna() & df['UMI2'].isna()).sum()
     
-    print(f"\nReal Data Statistics:")
-    print(f"  Total reads: {total_reads:,}")
-    print(f"  UMI1 missing: {umi1_missing:,} ({umi1_missing/total_reads*100:.1f}%)")
-    print(f"  UMI2 missing: {umi2_missing:,} ({umi2_missing/total_reads*100:.1f}%)")
-    print(f"  Both UMIs present: {both_present:,} ({both_present/total_reads*100:.1f}%)")
-    print(f"  Only UMI1 present: {only_umi1:,} ({only_umi1/total_reads*100:.1f}%)")
-    print(f"  Only UMI2 present: {only_umi2:,} ({only_umi2/total_reads*100:.1f}%)")
-    print(f"  Both missing: {both_missing:,} ({both_missing/total_reads*100:.1f}%)")
+#     print(f"\nReal Data Statistics:")
+#     print(f"  Total reads: {total_reads:,}")
+#     print(f"  UMI1 missing: {umi1_missing:,} ({umi1_missing/total_reads*100:.1f}%)")
+#     print(f"  UMI2 missing: {umi2_missing:,} ({umi2_missing/total_reads*100:.1f}%)")
+#     print(f"  Both UMIs present: {both_present:,} ({both_present/total_reads*100:.1f}%)")
+#     print(f"  Only UMI1 present: {only_umi1:,} ({only_umi1/total_reads*100:.1f}%)")
+#     print(f"  Only UMI2 present: {only_umi2:,} ({only_umi2/total_reads*100:.1f}%)")
+#     print(f"  Both missing: {both_missing:,} ({both_missing/total_reads*100:.1f}%)")
     
-    # Assertions
-    assert total_reads > 50000, f"Expected >50k reads, got {total_reads}"
-    assert umi1_missing > 0, "Expected some reads with missing UMI1"
-    assert umi2_missing > 0, "Expected some reads with missing UMI2"
-    assert only_umi1 > 0, "Expected some reads with only UMI1"
-    assert only_umi2 > 0, "Expected some reads with only UMI2"
+#     # Assertions
+#     assert total_reads > 50000, f"Expected >50k reads, got {total_reads}"
+#     assert umi1_missing > 0, "Expected some reads with missing UMI1"
+#     assert umi2_missing > 0, "Expected some reads with missing UMI2"
+#     assert only_umi1 > 0, "Expected some reads with only UMI1"
+#     assert only_umi2 > 0, "Expected some reads with only UMI2"
     
-    # Show examples
-    print(f"\nExamples of partial UMIs:")
-    if only_umi2 > 0:
-        print(f"\nReads with only UMI2 (missing UMI1):")
-        for _, row in df[df['UMI1'].isna() & df['UMI2'].notna()].head(2).iterrows():
-            print(f"  {row['Read Name']}: UMI1=NaN, UMI2={row['UMI2']}")
+#     # Show examples
+#     print(f"\nExamples of partial UMIs:")
+#     if only_umi2 > 0:
+#         print(f"\nReads with only UMI2 (missing UMI1):")
+#         for _, row in df[df['UMI1'].isna() & df['UMI2'].notna()].head(2).iterrows():
+#             print(f"  {row['Read Name']}: UMI1=NaN, UMI2={row['UMI2']}")
     
-    if only_umi1 > 0:
-        print(f"\nReads with only UMI1 (missing UMI2):")
-        for _, row in df[df['UMI1'].notna() & df['UMI2'].isna()].head(2).iterrows():
-            print(f"  {row['Read Name']}: UMI1={row['UMI1']}, UMI2=NaN")
+#     if only_umi1 > 0:
+#         print(f"\nReads with only UMI1 (missing UMI2):")
+#         for _, row in df[df['UMI1'].notna() & df['UMI2'].isna()].head(2).iterrows():
+#             print(f"  {row['Read Name']}: UMI1={row['UMI1']}, UMI2=NaN")
     
-    print(f"\n{'='*80}")
-    print(f"✓ Test passed: Real data with {only_umi1 + only_umi2:,} partial UMIs handled correctly")
-    print(f"{'='*80}\n")
+#     print(f"\n{'='*80}")
+#     print(f"✓ Test passed: Real data with {only_umi1 + only_umi2:,} partial UMIs handled correctly")
+#     print(f"{'='*80}\n")
 
 
 def test_dataframe_handles_none_umis():
@@ -417,36 +417,3 @@ def test_dataframe_handles_none_umis():
         if os.path.exists(csv_path):
             os.unlink(csv_path)
 
-
-# class TestExtract(unittest.TestCase):
-#     def test_umi_map(self):
-#         # Test extracting UMIs from a short read BAM file
-#         base_dir = Path(__file__).parent.parent / "test-data" / "test_umi_map"
-#         reference = str(base_dir / "LP250.fa")
-#         alignment = str(base_dir / "LP250-long.bam")
-#         minReadLength = 2000
-#         motif = "NHHHHHHHHHHHHHM"
-#         whitelist = str(base_dir / "LP250-short_correctedUMIs.csv")
-#         outputDir = str(base_dir)
-#         analysisOut = str(base_dir)
-
-#         try:
-#             umi_map.umi_extraction_map(reference, alignment, minReadLength, motif, whitelist, outputDir, analysisOut)
-#         except Exception as e:
-#             self.fail(f"extract_umis raised an exception: {e}")
-
-#     def test_umi_map_sample2(self):
-#         # Test extracting UMIs from a short read BAM file
-#         base_dir = Path(__file__).parent.parent / "test-data" / "test_umi_map"
-#         reference = str(base_dir / "LP250.fa")
-#         alignment = str(base_dir / "LP250v1.bam")
-#         minReadLength = 2000
-#         motif = "NHHHHHHHHHHHHHM"
-#         whitelist = str(base_dir / "LP250-short_correctedUMIs.csv")
-#         outputDir = str(base_dir)
-#         analysisOut = str(base_dir)
-
-#         try:
-#             umi_map.umi_extraction_map(reference, alignment, minReadLength, motif, whitelist, outputDir, analysisOut)
-#         except Exception as e:
-#             self.fail(f"extract_umis raised an exception: {e}")

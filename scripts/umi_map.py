@@ -28,15 +28,15 @@ def umi_extraction_map(
 
     # Set up logging
     logger = log()
-    from datetime import datetime
+    from datetime import datetime, UTC
     import json
     log_entries = []
-    start_time = datetime.utcnow().isoformat() + "Z"
+    start_time = datetime.now(UTC).isoformat().replace('+00:00', 'Z')
 
     def add_log(message, level="INFO"):
         logger.log_message(message)
         log_entries.append({
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(UTC).isoformat().replace('+00:00', 'Z'),
             "level": level,
             "message": message
         })
@@ -55,7 +55,7 @@ def umi_extraction_map(
     if motif_indices is None or raw_UMI_dict is None:
         add_log("UMI extraction failed. Please check the input files and parameters.", level="ERROR")
         # Write minimal failure log and exit
-        end_time = datetime.utcnow().isoformat() + "Z"
+        end_time = datetime.now(UTC).isoformat().replace('+00:00', 'Z')
         out_path = os.path.join(logOutputDir, f"{sampleName}_umi_extraction_map.log.json")
         with open(out_path, "w") as jf:
             json.dump({
@@ -439,7 +439,7 @@ def umi_extraction_map(
     add_log("Begin Analysis...")
 
     # Write JSON log summary
-    end_time = datetime.utcnow().isoformat() + "Z"
+    end_time = datetime.now(UTC).isoformat().replace('+00:00', 'Z')
     out_path = os.path.join(logOutputDir, f"{sampleName}_umi_extraction_map.log.json")
     # Include mapping/divergence stats if available (only in whitelist mapping mode)
     summary = {
