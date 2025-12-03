@@ -107,110 +107,120 @@ def extract(reference, alignment, min_read_length, motif, output):
         
         extract_umis(reference, bam_file, min_read_length, motif, bam_output)
 
+################################################################################
+# Map FASTQ reads to reference using minimap2 with filtering, sorting, indexing, and optional demultiplexing
+# I will not be using this function for now, but rather convert it into a pipeline 
+# once i start building the BELT pipelines
+# TODO: Convert this function into a pipeline
+################################################################################
 
-@main.command()
-@click.option('--reference', required=True, help="Reference genome fasta file")
-@click.option('--fastq', required=True, multiple=True, help="Input FASTQ file(s) - can be specified multiple times")
-@click.option('--output-dir', required=True, help="Output directory")
-@click.option('--min-length', default=1000, type=int, help="Minimum read length for filtering")
-@click.option('--min-quality', default=7, type=int, help="Minimum average quality score for filtering")
-@click.option('--threads', default=4, type=int, help="Number of threads to use")
-@click.option('--config', help="Config YAML file for barcode demultiplexing (optional)")
-@click.option('--sample-sheet', help="Sample sheet CSV file for demultiplexing (optional)")
-def map(reference, fastq, output_dir, min_length, min_quality, threads, config, sample_sheet):
-    """Map FASTQ reads to reference using minimap2 with filtering, sorting, indexing, and optional demultiplexing"""
-    import glob
-    from pathlib import Path
+# @main.command()
+# @click.option('--reference', required=True, help="Reference genome fasta file")
+# @click.option('--fastq', required=True, multiple=True, help="Input FASTQ file(s) - can be specified multiple times")
+# @click.option('--output-dir', required=True, help="Output directory")
+# @click.option('--min-length', default=1000, type=int, help="Minimum read length for filtering")
+# @click.option('--min-quality', default=7, type=int, help="Minimum average quality score for filtering")
+# @click.option('--threads', default=4, type=int, help="Number of threads to use")
+# @click.option('--config', help="Config YAML file for barcode demultiplexing (optional)")
+# @click.option('--sample-sheet', help="Sample sheet CSV file for demultiplexing (optional)")
+# def map(reference, fastq, output_dir, min_length, min_quality, threads, config, sample_sheet):
+#     """Map FASTQ reads to reference using minimap2 with filtering, sorting, indexing, and optional demultiplexing"""
+#     import glob
+#     from pathlib import Path
     
-    # Expand glob patterns in FASTQ file arguments
-    expanded_fastq_files = []
-    for fastq_pattern in fastq:
-        # Check if the pattern contains glob characters
-        if any(char in fastq_pattern for char in ['*', '?', '[', ']']):
-            # Expand glob pattern
-            matched_files = glob.glob(fastq_pattern)
-            if not matched_files:
-                print(f"Warning: No files found matching pattern: {fastq_pattern}")
-            else:
-                expanded_fastq_files.extend(matched_files)
-        else:
-            # No glob pattern, use as-is
-            if os.path.exists(fastq_pattern):
-                expanded_fastq_files.append(fastq_pattern)
-            else:
-                print(f"Warning: File not found: {fastq_pattern}")
+#     # Expand glob patterns in FASTQ file arguments
+#     expanded_fastq_files = []
+#     for fastq_pattern in fastq:
+#         # Check if the pattern contains glob characters
+#         if any(char in fastq_pattern for char in ['*', '?', '[', ']']):
+#             # Expand glob pattern
+#             matched_files = glob.glob(fastq_pattern)
+#             if not matched_files:
+#                 print(f"Warning: No files found matching pattern: {fastq_pattern}")
+#             else:
+#                 expanded_fastq_files.extend(matched_files)
+#         else:
+#             # No glob pattern, use as-is
+#             if os.path.exists(fastq_pattern):
+#                 expanded_fastq_files.append(fastq_pattern)
+#             else:
+#                 print(f"Warning: File not found: {fastq_pattern}")
     
-    if not expanded_fastq_files:
-        print("❌ No valid FASTQ files found!")
-        exit(1)
+#     if not expanded_fastq_files:
+#         print("❌ No valid FASTQ files found!")
+#         exit(1)
     
-    print(f"Found {len(expanded_fastq_files)} FASTQ file(s) to process:")
-    for f in expanded_fastq_files:
-        print(f"  - {f}")
+#     print(f"Found {len(expanded_fastq_files)} FASTQ file(s) to process:")
+#     for f in expanded_fastq_files:
+#         print(f"  - {f}")
     
-    # Process each FASTQ file
-    all_results = []
+#     # Process each FASTQ file
+#     all_results = []
     
-    for fastq_file in expanded_fastq_files:
-        print(f"Processing FASTQ file: {fastq_file}")
-        result = map_pipeline(
-            reference=reference,
-            fastq=fastq_file,
-            output_dir=output_dir,
-            min_length=min_length,
-            min_quality=min_quality,
-            threads=threads,
-            config_file=config,
-            sample_sheet=sample_sheet
-        )
-        all_results.append(result)
+#     for fastq_file in expanded_fastq_files:
+#         print(f"Processing FASTQ file: {fastq_file}")
+#         result = map_pipeline(
+#             reference=reference,
+#             fastq=fastq_file,
+#             output_dir=output_dir,
+#             min_length=min_length,
+#             min_quality=min_quality,
+#             threads=threads,
+#             config_file=config,
+#             sample_sheet=sample_sheet
+#         )
+#         all_results.append(result)
     
-    # Check if all results were successful
-    successful_results = [r for r in all_results if r is not None]
+#     # Check if all results were successful
+#     successful_results = [r for r in all_results if r is not None]
     
-    if successful_results:
-        print("✅ Mapping pipeline completed successfully!")
-        print(f"Processed {len(successful_results)} out of {len(all_results)} FASTQ files")
+#     if successful_results:
+#         print("✅ Mapping pipeline completed successfully!")
+#         print(f"Processed {len(successful_results)} out of {len(all_results)} FASTQ files")
         
-        # Show statistics for each successful result
-        for i, result in enumerate(successful_results):
-            if result:
-                print(f"\n📊 Results for FASTQ file {i+1}:")
+#         # Show statistics for each successful result
+#         for i, result in enumerate(successful_results):
+#             if result:
+#                 print(f"\n📊 Results for FASTQ file {i+1}:")
                 
-                # Show filtering statistics if available
-                if 'filtering_stats' in result:
-                    filter_stats = result['filtering_stats']
-                    print(f"  Filtering Statistics:")
-                    print(f"    Original reads: {filter_stats['total_reads']}")
-                    print(f"    Filtered reads: {filter_stats['filtered_reads']}")
-                    print(f"    Length filtered: {filter_stats['length_filtered']}")
-                    print(f"    Quality filtered: {filter_stats['quality_filtered']}")
-                    print(f"    Filter rate: {filter_stats['filter_rate']:.2%}")
+#                 # Show filtering statistics if available
+#                 if 'filtering_stats' in result:
+#                     filter_stats = result['filtering_stats']
+#                     print(f"  Filtering Statistics:")
+#                     print(f"    Original reads: {filter_stats['total_reads']}")
+#                     print(f"    Filtered reads: {filter_stats['filtered_reads']}")
+#                     print(f"    Length filtered: {filter_stats['length_filtered']}")
+#                     print(f"    Quality filtered: {filter_stats['quality_filtered']}")
+#                     print(f"    Filter rate: {filter_stats['filter_rate']:.2%}")
                 
-                # Show demultiplexing statistics if available
-                if 'demultiplexing_stats' in result:
-                    stats = result['demultiplexing_stats']
-                    # Calculate corrected statistics
-                    original_total = result['filtering_stats']['total_reads'] if 'filtering_stats' in result else stats['total_reads']
-                    filtered_total = result['filtering_stats']['filtered_reads'] if 'filtering_stats' in result else stats['total_reads']
+#                 # Show demultiplexing statistics if available
+#                 if 'demultiplexing_stats' in result:
+#                     stats = result['demultiplexing_stats']
+#                     # Calculate corrected statistics
+#                     original_total = result['filtering_stats']['total_reads'] if 'filtering_stats' in result else stats['total_reads']
+#                     filtered_total = result['filtering_stats']['filtered_reads'] if 'filtering_stats' in result else stats['total_reads']
                     
-                    print(f"  Demultiplexing Statistics:")
-                    print(f"    Original reads: {original_total}")
-                    print(f"    Filtered reads: {filtered_total}")
-                    print(f"    Demultiplexed reads: {stats['demultiplexed_reads']}")
-                    print(f"    Unassigned reads: {stats['unassigned_reads']}")
-                    print(f"    Demultiplexing rate (of filtered): {stats['demultiplexed_reads']/stats['total_reads']:.2%}")
-                    print(f"    Overall success rate: {stats['demultiplexed_reads']/original_total:.2%}")
-                    print(f"  Demultiplexed files:")
-                    # Use the new sample_counts format
-                    sample_counts = stats.get('sample_counts', {})
-                    for sample, count in sample_counts.items():
-                        print(f"    {sample}: {count} reads")
-                    print(f"    unassigned: {stats['unassigned_reads']} reads")
-    else:
-        print("❌ Mapping pipeline failed for all FASTQ files!")
-        exit(1)
+#                     print(f"  Demultiplexing Statistics:")
+#                     print(f"    Original reads: {original_total}")
+#                     print(f"    Filtered reads: {filtered_total}")
+#                     print(f"    Demultiplexed reads: {stats['demultiplexed_reads']}")
+#                     print(f"    Unassigned reads: {stats['unassigned_reads']}")
+#                     print(f"    Demultiplexing rate (of filtered): {stats['demultiplexed_reads']/stats['total_reads']:.2%}")
+#                     print(f"    Overall success rate: {stats['demultiplexed_reads']/original_total:.2%}")
+#                     print(f"  Demultiplexed files:")
+#                     # Use the new sample_counts format
+#                     sample_counts = stats.get('sample_counts', {})
+#                     for sample, count in sample_counts.items():
+#                         print(f"    {sample}: {count} reads")
+#                     print(f"    unassigned: {stats['unassigned_reads']} reads")
+#     else:
+#         print("❌ Mapping pipeline failed for all FASTQ files!")
+#         exit(1)
 
+
+################################################################################
+# UMI Map - Map UMIs to a whitelist and generate paired UMI output from BAM files
+################################################################################
 
 @main.command()
 @click.option('--whitelist', required=True, help="Path to the whitelist file")
@@ -237,6 +247,10 @@ def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir,
     umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir, max_distance, logOutputDir=log_dir)
 
 
+################################################################################
+# UMI Group - Group long-read UMIs based on corrected UMI data from BAM files
+################################################################################
+
 @main.command(name='umi-group')
 @click.option('--alignment', required=True, help="Input BAM file")
 @click.option('--corrected_umis', required=True, help="Path to the corrected UMIs file")
@@ -251,6 +265,9 @@ def umi_group(alignment, corrected_umis, output_dir, log_dir, grouping, threshol
     """Group long-read UMIs based on corrected UMI data from BAM files"""
     long_read_umi_grouping_fast(alignment, corrected_umis, output_dir, grouping, threshold, log_dir=log_dir, umi2_majority_threshold=umi2_majority_threshold)
 
+################################################################################
+# Whitelist - Generate a whitelist of UMIs
+################################################################################
 
 @main.command()
 @click.option('--reference', required=True, help="Reference genome fasta file")
@@ -274,6 +291,10 @@ def whitelist(reference, alignment, min_read_length, motif, cluster_method, outp
     
     umi_whitelist(reference, alignment, min_read_length, motif, cluster_method, output_dir)
 
+
+################################################################################
+# Consensus - Generate consensus sequences from grouped BAM file
+################################################################################
 
 @main.command()
 @click.option('--grouped-bam', required=True, help="Input grouped BAM file with UMI tags")
