@@ -22,8 +22,14 @@ except ImportError:
 import os, subprocess, pysam, pandas as pd
 
 def long_read_umi_grouping_fast(
-        alignedReads, correctedUMIs, outputDir,
-        grouping="UMI1", threshold=5, threads=8, write_fastq=False, log_dir=None,
+        alignedReads, 
+        correctedUMIs, 
+        outputDir,
+        grouping="UMI1", 
+        threshold=5, 
+        threads=8, 
+        write_fastq=False, 
+        log_dir=None,
         umi2_majority_threshold=0.5
         ):
     """
@@ -142,7 +148,8 @@ def long_read_umi_grouping_fast(
 
     if keepers.empty:
         try:
-            import json, datetime
+            import json
+            from datetime import datetime, UTC
             total_unique = int(counts.shape[0])
             passing_threshold = int(counts[counts >= threshold].shape[0])
             fraction_passing_threshold = (passing_threshold / total_unique) if total_unique > 0 else 0.0
@@ -163,7 +170,7 @@ def long_read_umi_grouping_fast(
                 "aligned_bam": alignedReads,
                 "corrected_umis_csv": correctedUMIs,
                 "output_dir": outputDir,
-                "created_at": datetime.datetime.utcnow().isoformat() + "Z"
+                "created_at": datetime.now(UTC).isoformat().replace('+00:00', 'Z')
             }
             with open(log_json_path, "w") as jf:
                 json.dump(log_payload, jf)
@@ -175,7 +182,8 @@ def long_read_umi_grouping_fast(
 
     # Write JSON log with requested metrics when there are keepers
     try:
-        import json, datetime
+        import json
+        from datetime import datetime, UTC
         total_unique = int(counts.shape[0])
         passing_threshold = int(counts[counts >= threshold].shape[0])
         fraction_passing_threshold = (passing_threshold / total_unique) if total_unique > 0 else 0.0
@@ -199,7 +207,7 @@ def long_read_umi_grouping_fast(
             "aligned_bam": alignedReads,
             "corrected_umis_csv": correctedUMIs,
             "output_dir": outputDir,
-            "created_at": datetime.datetime.utcnow().isoformat() + "Z"
+            "created_at": datetime.now(UTC).isoformat().replace('+00:00', 'Z')
         }
         with open(log_json_path, "w") as jf:
             json.dump(log_payload, jf)

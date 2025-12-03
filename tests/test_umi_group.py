@@ -13,7 +13,7 @@ import shutil
 # Add the scripts directory to the path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'scripts'))
 
-from umi_group import long_read_umi_grouping, long_read_umi_grouping_fast  # type: ignore
+from umi_group import long_read_umi_grouping_fast  # type: ignore
 
 
 @pytest.fixture
@@ -42,7 +42,7 @@ def test_paths_umi_group(test_config_umi_group):
 
 
 def test_umi_consensus_long(test_config_umi_group, test_paths_umi_group):
-    """Test long read UMI consensus grouping"""
+    """Test long read UMI consensus grouping using fast grouping function"""
     reference_file = test_paths_umi_group['reference_file']
     bam_file = test_paths_umi_group['bam_file']
     corrected_umis_file = test_paths_umi_group['corrected_umis_file']
@@ -52,9 +52,8 @@ def test_umi_consensus_long(test_config_umi_group, test_paths_umi_group):
     assert bam_file.exists(), f"BAM file not found: {bam_file}"
     assert corrected_umis_file.exists(), f"Corrected UMIs file not found: {corrected_umis_file}"
     
-    # Run the long_read_umi_grouping function
-    long_read_umi_grouping(
-        reference=str(reference_file),
+    # Run the long_read_umi_grouping_fast function
+    long_read_umi_grouping_fast(
         alignedReads=str(bam_file),
         correctedUMIs=str(corrected_umis_file),
         outputDir=test_config_umi_group['output_dir'],
@@ -113,13 +112,13 @@ def test_umi_grouping_with_fastq_inspection(test_config_umi_group, test_paths_um
     os.makedirs(output_dir, exist_ok=True)
     
     # Run the function
-    long_read_umi_grouping(
-        reference=str(reference_file),
+    long_read_umi_grouping_fast(
         alignedReads=str(bam_file),
         correctedUMIs=str(corrected_umis_file),
         outputDir=output_dir,
         grouping="UMI1",
-        threshold=1  # Lower threshold to get more groups
+        threshold=1,  # Lower threshold to get more groups
+        write_fastq=True  # Enable FASTQ output for inspection
     )
     
     # Read and display sequences from FASTQ files
@@ -197,8 +196,7 @@ def test_umi_grouping_different_columns(test_config_umi_group, test_paths_umi_gr
         
         print(f"\n--- Grouping by {umi_col} ---")
         
-        long_read_umi_grouping(
-            reference=str(reference_file),
+        long_read_umi_grouping_fast(
             alignedReads=str(bam_file),
             correctedUMIs=str(corrected_umis_file),
             outputDir=output_dir,
@@ -234,7 +232,6 @@ def test_umi_grouping_fast(test_config_umi_group, test_paths_umi_group, tmp_path
     
     # Run the fast version
     long_read_umi_grouping_fast(
-        reference=str(reference_file),
         alignedReads=str(bam_file),
         correctedUMIs=str(corrected_umis_file),
         outputDir=output_dir,
@@ -281,7 +278,6 @@ def test_umi_grouping_fast_with_fastq(test_config_umi_group, test_paths_umi_grou
     
     # Run with FASTQ output
     long_read_umi_grouping_fast(
-        reference=str(reference_file),
         alignedReads=str(bam_file),
         correctedUMIs=str(corrected_umis_file),
         outputDir=output_dir,
