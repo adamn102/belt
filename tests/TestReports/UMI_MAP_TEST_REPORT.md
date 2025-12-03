@@ -23,7 +23,7 @@
 
 ## Executive Summary
 
-The `umi_map.py` module provides comprehensive UMI extraction, mapping, and clustering functionality for BELT. It builds upon the `extract.py` module to add whitelist mapping, UMI clustering, and enhanced output formatting. This report provides a detailed analysis of the current test coverage and identifies areas for improvement.
+The `umi_map.py` module performs **error correction and clustering of raw UMI data** prior to UMI grouping in the BELT pipeline. It takes raw extracted UMIs from `extract.py` and produces error-corrected versions through whitelist mapping or UMI clustering, outputting a CSV file with both raw and corrected UMI sequences for all reads. This preprocessing step is critical for improving the accuracy of downstream UMI grouping and consensus sequence generation. This report provides a detailed analysis of the current test coverage and identifies areas for improvement.
 
 ### Key Metrics
 
@@ -55,12 +55,26 @@ The `umi_map.py` module provides comprehensive UMI extraction, mapping, and clus
 
 ### Purpose
 
-The `umi_map.py` module extends UMI extraction with:
-1. **Whitelist Mapping:** Maps extracted UMIs to a whitelist using BK-tree approximate matching
-2. **UMI Clustering:** Clusters similar UMIs using UMI-tools
-3. **Partial UMI Handling:** Gracefully handles reads with missing UMIs
-4. **Enhanced Output:** Generates CSV with both raw and corrected UMIs
-5. **Comprehensive Logging:** Produces JSON logs with detailed statistics
+The `umi_map.py` module performs **error correction and clustering of raw UMI data** prior to UMI grouping. This is a critical preprocessing step that improves downstream analysis by:
+
+1. **Error Correction:** Corrects sequencing errors in raw UMIs through:
+   - **Whitelist Mapping:** Maps extracted UMIs to a whitelist using BK-tree approximate matching (corrects to nearest whitelist UMI)
+   - **UMI Clustering:** Clusters similar UMIs using UMI-tools (corrects to cluster representative)
+
+2. **Data Preparation:** Prepares corrected UMI data for UMI grouping by:
+   - Extracting raw UMIs from aligned reads
+   - Error-correcting/clustering the raw UMIs
+   - Generating output with both raw and corrected sequences for all UMIs
+
+3. **Output Format:** Produces a CSV file containing:
+   - **Read Name:** Identifier for each read
+   - **Raw UMI columns:** Original extracted UMI sequences (e.g., `UMI1_Raw`, `UMI2_Raw`, ...)
+   - **Corrected UMI columns:** Error-corrected/clustered UMI sequences (e.g., `UMI1`, `UMI2`, ...)
+   - This dual format allows downstream analysis to use either raw or corrected UMIs as needed
+
+4. **Partial UMI Handling:** Gracefully handles reads with missing UMIs (preserves NaN values)
+
+5. **Comprehensive Logging:** Produces JSON logs with detailed statistics for quality control and debugging
 
 ### Dependencies
 
@@ -73,15 +87,20 @@ The `umi_map.py` module extends UMI extraction with:
 
 ### Key Features
 
-- **Three Whitelist Modes:**
-  - `"false"` - Use raw UMIs without mapping
-  - `"cluster"` - Cluster UMIs using UMI-tools
-  - File path - Map to whitelist CSV using BK-tree
+- **Three Error Correction Modes:**
+  - `"false"` - No error correction (uses raw UMIs as-is)
+  - `"cluster"` - Error correction via UMI clustering (groups similar UMIs, corrects to cluster representative)
+  - File path - Error correction via whitelist mapping (corrects to nearest whitelist UMI using BK-tree)
 
-- **Partial UMI Support:** Handles NaN/None values throughout pipeline
-- **Strict Filtering:** Drops reads with non-mapping UMIs in whitelist mode
-- **Comprehensive Statistics:** Tracks mapping/clustering metrics per column
-- **Dual Output Format:** CSV includes both raw and corrected UMIs
+- **Dual Output Format:** CSV includes both raw and corrected UMI sequences:
+  - Raw columns (`UMI1_Raw`, `UMI2_Raw`, ...): Original extracted sequences
+  - Corrected columns (`UMI1`, `UMI2`, ...): Error-corrected/clustered sequences
+  - Enables downstream analysis to use either raw or corrected UMIs as needed
+
+- **Partial UMI Support:** Handles NaN/None values throughout pipeline (preserved in both raw and corrected columns)
+- **Strict Filtering:** Drops reads with non-mapping UMIs in whitelist mode (when whitelist mapping is used)
+- **Comprehensive Statistics:** Tracks mapping/clustering metrics per column for quality control
+- **Pipeline Integration:** Output format designed for downstream UMI grouping step
 
 ---
 
@@ -89,7 +108,26 @@ The `umi_map.py` module extends UMI extraction with:
 
 ### 1. `umi_extraction_map()`
 
-**Purpose:** Main orchestration function for UMI extraction, mapping, and output generation.
+**Purpose:** Main orchestration function that **error-corrects and clusters raw UMI data** prior to UMI grouping. This function serves as a critical preprocessing step in the BELT pipeline, taking raw extracted UMIs and producing error-corrected versions that improve the accuracy of downstream UMI grouping and consensus sequence generation.
+
+**Workflow:**
+1. **Extract Raw UMIs:** Calls `findUMI()` to extract raw UMI sequences from aligned reads
+2. **Error Correction/Clustering:** Applies one of three correction methods:
+   - `"false"`: No correction (uses raw UMIs as-is)
+   - `"cluster"`: Clusters similar UMIs using UMI-tools and corrects to cluster representatives
+   - File path: Maps UMIs to whitelist using BK-tree approximate matching (corrects to nearest whitelist UMI)
+3. **Generate Output:** Creates CSV file with both raw and corrected UMI sequences for all reads
+
+**Output Format:**
+The function generates a CSV file (`{sampleName}_Paired_UMIs_read_names.csv`) with the following structure:
+- **Read Name:** Identifier for each read
+- **Raw UMI columns:** `UMI1_Raw`, `UMI2_Raw`, `UMI3_Raw`, ... (original extracted sequences)
+- **Corrected UMI columns:** `UMI1`, `UMI2`, `UMI3`, ... (error-corrected/clustered sequences)
+
+This dual format allows downstream UMI grouping to:
+- Use corrected UMIs for more accurate grouping (reduces false diversity from sequencing errors)
+- Access raw UMIs for quality control and analysis
+- Handle partial UMIs (NaN values preserved in both raw and corrected columns)
 
 **Parameters:**
 - `reference` (str): Path to reference FASTA file
@@ -102,19 +140,21 @@ The `umi_map.py` module extends UMI extraction with:
 - `logOutputDir` (str, optional): Directory for log files
 
 **Key Functionality:**
-1. Calls `findUMI()` to extract raw UMIs
+1. Calls `findUMI()` to extract raw UMIs from aligned reads
 2. Converts to DataFrame with UMI columns (UMI1, UMI2, etc.)
 3. Computes missing UMI statistics
 4. Handles three whitelist modes:
-   - `"false"`: Uses raw UMIs
-   - `"cluster"`: Clusters UMIs using UMI-tools
-   - File path: Maps to whitelist using BK-tree
-5. Generates output CSV with raw and corrected UMIs
+   - `"false"`: Uses raw UMIs without correction
+   - `"cluster"`: Clusters UMIs using UMI-tools (error correction via clustering)
+   - File path: Maps to whitelist using BK-tree (error correction via whitelist matching)
+5. Generates output CSV with both raw and corrected UMIs for all reads
 6. Creates JSON log file with comprehensive statistics
 
 **Lines of Code:** 12-485
 
 **Complexity:** High - handles multiple modes, statistics, logging
+
+**Pipeline Context:** This function is called after UMI extraction (`extract.py`) and before UMI grouping (`umi_group.py`). The error-corrected UMIs produced here are used by the grouping step to more accurately group reads by their true UMI identity, reducing the impact of sequencing errors on downstream analysis.
 
 ### 2. `cluster_umis_umitools()`
 
@@ -347,13 +387,15 @@ The file contains commented-out unittest-style tests (lines 421-452) that were l
 
 #### 4. **Output CSV Format Validation**
 - **Code Location:** `umi_map.py:401-436`
-- **Functionality:** Generate CSV with raw and corrected UMIs
+- **Functionality:** Generate CSV with raw and corrected UMIs for all reads
 - **Test Needed:**
   - Verify column structure: `Read Name, UMI1_Raw, UMI1, UMI2_Raw, UMI2, ...`
-  - Verify raw UMIs are preserved
-  - Verify corrected UMIs are present
+  - Verify raw UMIs are preserved in `*_Raw` columns
+  - Verify corrected UMIs are present in non-`_Raw` columns
+  - Verify both raw and corrected columns exist for all UMIs
   - Verify NaN values written as empty strings (`na_rep=''`)
-- **Impact:** High (output format critical for downstream)
+  - Verify output format is suitable for downstream UMI grouping
+- **Impact:** High (output format critical for downstream UMI grouping step)
 
 #### 5. **JSON Log File Generation**
 - **Code Location:** `umi_map.py:441-484`
@@ -645,7 +687,9 @@ Based on test analysis:
 
 ## Conclusion
 
-The `umi_map.py` module has **excellent test coverage for partial UMI handling**, which is a critical feature. The tests effectively validate:
+The `umi_map.py` module serves a **critical role in the BELT pipeline** as the error correction and clustering step that prepares raw UMI data for downstream UMI grouping. By producing both raw and corrected UMI sequences for all reads, it enables more accurate grouping while preserving the original data for quality control.
+
+The module has **excellent test coverage for partial UMI handling**, which is a critical feature. The tests effectively validate:
 
 ✅ Partial UMI scenarios (comprehensive)  
 ✅ Real-world data integration  
@@ -654,13 +698,13 @@ The `umi_map.py` module has **excellent test coverage for partial UMI handling**
 
 However, there are **significant gaps** in coverage, particularly:
 
-⚠️ **"cluster" whitelist mode** (completely untested)  
+⚠️ **"cluster" whitelist mode** (completely untested - major error correction method)  
 ⚠️ **Error handling scenarios** (limited testing)  
 ⚠️ **Helper functions** (string_hamming, cluster_umis_umitools, load_whitelist)  
-⚠️ **Output format validation** (CSV structure, JSON logs)  
+⚠️ **Output format validation** (CSV structure with raw/corrected columns, JSON logs)  
 ⚠️ **Edge cases** (empty whitelist, strict filtering, etc.)  
 
-**Recommendation:** Implement Priority 1 tests to achieve comprehensive coverage. The current test suite provides excellent coverage for partial UMI handling but needs expansion for other features and error cases.
+**Recommendation:** Implement Priority 1 tests to achieve comprehensive coverage. The current test suite provides excellent coverage for partial UMI handling but needs expansion for error correction methods (especially clustering), output format validation, and error cases. Given the module's critical role in preparing data for UMI grouping, comprehensive testing of all error correction modes is essential.
 
 ---
 
