@@ -78,10 +78,30 @@ def align_sequences(consensus_seq: Seq, reference_seq: Seq) -> Tuple[str, str, D
         return "", "", {}
 
 
-def find_mutations(ref_aligned: str, cons_aligned: str) -> List[Dict]:
+def is_umi_sequence(sequence: str) -> bool:
+    """
+    Check if a sequence is a UMI sequence (typically 12 N's).
+    UMIs are represented as N's in consensus sequences.
+    """
+    if not sequence:
+        return False
+    # Check if sequence is all N's (case insensitive) and typical UMI length (10-15 bases)
+    sequence_upper = sequence.upper()
+    if len(sequence_upper) >= 10 and len(sequence_upper) <= 15:
+        return all(base == 'N' for base in sequence_upper)
+    return False
+
+
+def find_mutations(ref_aligned: str, cons_aligned: str, reference_length: int = 0) -> List[Dict]:
     """
     Find mutations between aligned sequences.
     Groups consecutive indels together as single events with size information.
+    Skips insertions that are UMI sequences (12 N's) at the start or end of the reference.
+    
+    Args:
+        ref_aligned: Aligned reference sequence
+        cons_aligned: Aligned consensus sequence
+        reference_length: Length of the unaligned reference sequence (for boundary detection)
     """
     mutations = []
     ref_pos = 0
@@ -101,17 +121,38 @@ def find_mutations(ref_aligned: str, cons_aligned: str) -> List[Dict]:
                 insertion_bases.append(cons_aligned[i])
                 i += 1
             
+            # Check if this is a UMI sequence (all N's, typical length)
+            inserted_seq = "".join(insertion_bases) if len(insertion_bases) > 1 else insertion_bases[0]
+            
+            # Skip if it's a UMI sequence (all N's, 10-15 bases long)
+            if is_umi_sequence(inserted_seq):
+                logger.debug(f"Skipping UMI insertion at position {insertion_ref_pos}: {inserted_seq}")
+                continue
+
+            # Also skip insertions near the boundaries (first 50 or last 50 bases)
+            # These are likely UMI sequences even if not detected as all N's
+            # UMIs are typically at the start/end of amplicons
+            if reference_length > 0:
+                boundary_window = 50  # Check within 50 bases of start/end
+                is_near_start = insertion_ref_pos < boundary_window
+                is_near_end = insertion_ref_pos > reference_length - boundary_window
+                
+                # If it's a typical UMI length (10-15 bases) and near a boundary, skip it
+                if (is_near_start or is_near_end) and 10 <= len(inserted_seq) <= 15:
+                    logger.debug(f"Skipping boundary insertion at position {insertion_ref_pos} (near {'start' if is_near_start else 'end'}): {inserted_seq}")
+                    continue
+            
             # Record as single insertion with size
             mutations.append({
                 "type": "insertion",
                 "ref_position": insertion_ref_pos,
                 "ref_base": "-",
-                "cons_base": "".join(insertion_bases) if len(insertion_bases) > 1 else insertion_bases[0],
+                "cons_base": inserted_seq,
                 "size": len(insertion_bases),
-                "inserted_sequence": "".join(insertion_bases)
+                "inserted_sequence": inserted_seq
             })
             continue
-            
+
         elif ref_char != '-' and cons_char == '-':
             # Start of deletion - collect consecutive deletions
             deletion_start_pos = ref_pos
@@ -132,7 +173,7 @@ def find_mutations(ref_aligned: str, cons_aligned: str) -> List[Dict]:
                 "deleted_sequence": "".join(deletion_bases)
             })
             continue
-            
+
         elif ref_char != '-' and cons_char != '-' and ref_char != cons_char:
             # Substitution
             mutations.append({
@@ -142,13 +183,13 @@ def find_mutations(ref_aligned: str, cons_aligned: str) -> List[Dict]:
                 "cons_base": cons_char
             })
             ref_pos += 1
-            
+
         elif ref_char != '-' and cons_char != '-':
             # Match
             ref_pos += 1
-        
+
         i += 1
-    
+
     return mutations
 
 
@@ -198,9 +239,9 @@ def mutation_caller(consensus_file: Path, reference_file: Path, sample_name: str
         if not ref_aligned or not cons_aligned:
             logger.warning(f"Failed to align sequence {cons_id}")
             continue
-        
-        # Find mutations
-        mutations = find_mutations(ref_aligned, cons_aligned)
+
+        # Find mutations (pass reference length to help detect boundary UMIs)
+        mutations = find_mutations(ref_aligned, cons_aligned, reference_length=len(reference_seq))
         
         # Process mutations
         read_mutations = []
@@ -211,12 +252,14 @@ def mutation_caller(consensus_file: Path, reference_file: Path, sample_name: str
                 "type": mutation["type"],
                 "ref_base": mutation["ref_base"],
                 "cons_base": mutation["cons_base"],
-                "umi_id": cons_id
+                "umi_id": cons_id,
+                "sample_id": sample_name
             })
             read_mutations.append(mutation)
         
         # Per-read analysis
         per_read_analysis.append({
+            "sample_id": sample_name,
             "consensus_id": cons_id,
             "sequence_length": len(cons_seq),
             "mutation_count": len(mutations),
@@ -254,6 +297,7 @@ def mutation_caller(consensus_file: Path, reference_file: Path, sample_name: str
     # Save per-read analysis as CSV
     per_read_df = pd.DataFrame([
         {
+            'Sample_ID': read['sample_id'],
             'Consensus_ID': read['consensus_id'],
             'Sequence_Length': read['sequence_length'],
             'Mutation_Count': read['mutation_count'],

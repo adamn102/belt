@@ -19,7 +19,8 @@ from scripts.consensus import (
     sanitize_umi_name,
     write_group_fastq,
     check_dependencies,
-    run_consensus_for_umi
+    run_consensus_for_umi,
+    umi_consensus_bcftools
 )
 
 
@@ -245,7 +246,7 @@ class TestRunConsensusForUmi:
             # Verify output
             consensus_path = Path(result)
             assert consensus_path.exists()
-            assert consensus_path.name == f"{umi_safe}_consensus.fasta"
+            assert consensus_path.name == f"{umi_safe}.fasta"
             
             # Verify consensus FASTA content
             with open(consensus_path) as f:
@@ -307,10 +308,10 @@ class TestConsensusIntegration:
     @pytest.fixture
     def belt_test_data(self):
         """Get path to BELT test data if available."""
-        test_data_dir = Path(__file__).parent.parent.parent / "Belt Pipeline" / "data"
+        test_data_dir = Path(__file__).parent.parent / "test-data"
         
         if not test_data_dir.exists():
-            pytest.skip("Belt Pipeline test data not available")
+            pytest.skip("BELT test data directory not available")
         
         return test_data_dir
     
@@ -329,16 +330,22 @@ class TestConsensusIntegration:
         # Use the first grouped BAM
         grouped_bam = grouped_bams[0]
         
-        # Get corresponding reference
+        # Get corresponding reference - try to match sample name
         ref_dir = belt_test_data / "0-consensus_reference"
         if not ref_dir.exists():
             pytest.skip("Reference directory not found")
         
-        refs = list(ref_dir.glob("*.fa"))
-        if not refs:
-            pytest.skip("No reference FASTA found")
+        # Extract base name from BAM (e.g., "B145" from "B145-XTMMF9-12.grouped.bam")
+        sample_base = grouped_bam.stem.replace(".grouped", "").split("-")[0]
         
-        reference = refs[0]
+        # Try to find matching reference file
+        reference = ref_dir / f"{sample_base}.fa"
+        if not reference.exists():
+            # Fall back to first available .fa file
+            refs = list(ref_dir.glob("*.fa"))
+            if not refs:
+                pytest.skip("No reference FASTA found")
+            reference = refs[0]
         
         print(f"\n🧪 Testing consensus with real data:")
         print(f"   BAM: {grouped_bam.name}")
@@ -411,6 +418,259 @@ class TestConsensusIntegration:
             pytest.skip(f"Required tool not found: {e}")
 
 
+class TestUmiConsensusBcftools:
+    """Test the bcftools-based UMI consensus function."""
+    
+    @pytest.fixture
+    def reference_fasta(self, tmp_path):
+        """Create a small reference FASTA for testing."""
+        ref_path = tmp_path / "reference.fasta"
+        
+        # Create a simple 500bp reference
+        ref_seq = "A" * 125 + "C" * 125 + "G" * 125 + "T" * 125
+        record = SeqRecord(Seq(ref_seq), id="ref1", description="Test reference")
+        
+        with open(ref_path, "w") as f:
+            SeqIO.write(record, f, "fasta")
+        
+        return ref_path
+    
+    @pytest.fixture
+    def grouped_bam(self, tmp_path, reference_fasta):
+        """Create a BAM file with reads tagged with UMI."""
+        bam_path = tmp_path / "grouped.bam"
+        
+        # Create BAM header
+        header = {
+            'HD': {'VN': '1.0'},
+            'SQ': [{'SN': 'ref1', 'LN': 500}]
+        }
+        
+        # Create reads aligned to the reference
+        with pysam.AlignmentFile(str(bam_path), "wb", header=header) as bam:
+            # Create 5 reads for UMI "TESTUMI1"
+            for i in range(5):
+                read = pysam.AlignedSegment()
+                read.query_name = f"read_umi1_{i}"
+                # Create sequences that match the reference with minor variations
+                if i == 0:
+                    read.query_sequence = "A" * 50 + "C" * 50  # Matches ref
+                elif i == 1:
+                    read.query_sequence = "A" * 50 + "C" * 50  # Matches ref
+                elif i == 2:
+                    read.query_sequence = "A" * 49 + "G" + "C" * 50  # Variant at pos 49
+                elif i == 3:
+                    read.query_sequence = "A" * 50 + "C" * 50  # Matches ref
+                else:
+                    read.query_sequence = "A" * 50 + "C" * 50  # Matches ref
+                
+                read.query_qualities = pysam.qualitystring_to_array("I" * len(read.query_sequence))
+                read.reference_id = 0
+                read.reference_start = 0
+                read.cigar = [(0, len(read.query_sequence))]  # Match
+                read.mapping_quality = 60
+                read.set_tag("ZU", "TESTUMI1")
+                bam.write(read)
+            
+            # Create 3 reads for a different UMI "TESTUMI2"
+            for i in range(3):
+                read = pysam.AlignedSegment()
+                read.query_name = f"read_umi2_{i}"
+                read.query_sequence = "G" * 50 + "T" * 50
+                read.query_qualities = pysam.qualitystring_to_array("I" * len(read.query_sequence))
+                read.reference_id = 0
+                read.reference_start = 250  # Start at different position
+                read.cigar = [(0, len(read.query_sequence))]
+                read.mapping_quality = 60
+                read.set_tag("ZU", "TESTUMI2")
+                bam.write(read)
+        
+        # Index the BAM
+        pysam.index(str(bam_path))
+        
+        return bam_path
+    
+    def test_umi_consensus_bcftools_function_signature(self):
+        """Test that the function has the expected signature."""
+        import inspect
+        sig = inspect.signature(umi_consensus_bcftools)
+        params = list(sig.parameters.keys())
+        
+        assert "umi" in params
+        assert "bam" in params
+        assert "ref" in params
+    
+    @pytest.mark.skipif(
+        subprocess.run(["which", "bcftools"], capture_output=True).returncode != 0,
+        reason="bcftools not available"
+    )
+    def test_umi_consensus_bcftools_basic(self, tmp_path, reference_fasta, grouped_bam):
+        """
+        Test the basic bcftools consensus workflow.
+        This requires bcftools to be installed.
+        """
+        import os
+        
+        # Change to tmp_path to avoid path issues with the function's hardcoded paths
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            
+            # Files are already in tmp_path, use them with relative paths
+            bam_name = grouped_bam.name
+            ref_name = reference_fasta.name
+            
+            # Run the consensus function
+            umi = "TESTUMI1"
+            result = umi_consensus_bcftools(
+                umi=umi,
+                bam=Path(bam_name),
+                ref=Path(ref_name)
+            )
+            
+            # Verify output file was created
+            consensus_path = Path(result)
+            assert consensus_path.exists(), f"Consensus file not found: {consensus_path}"
+            assert consensus_path.name == f"umi.{umi}.consensus.fa"
+            
+            # Verify consensus FASTA content
+            with open(consensus_path) as f:
+                lines = f.readlines()
+            
+            # Should have a header and sequence
+            assert len(lines) >= 2, "Consensus FASTA should have at least header and sequence"
+            assert lines[0].startswith(">"), "First line should be a FASTA header"
+            
+            # Sequence should not be empty
+            sequence = "".join(line.strip() for line in lines[1:])
+            assert len(sequence) > 0, "Consensus sequence should not be empty"
+            assert len(sequence) == 500, f"Expected 500bp consensus, got {len(sequence)}bp"
+            
+            # Verify intermediate files were created
+            assert Path(f"umi.{umi}.bam").exists(), "Extracted BAM should exist"
+            assert Path(f"umi.{umi}.vcf.gz").exists(), "VCF should exist"
+            assert Path(f"umi.{umi}.norm.vcf.gz").exists(), "Normalized VCF should exist"
+            
+            print(f"\n✅ bcftools consensus test passed!")
+            print(f"   Output: {consensus_path}")
+            print(f"   Sequence length: {len(sequence)} bp")
+            print(f"   First 50bp: {sequence[:50]}")
+            
+        finally:
+            os.chdir(original_cwd)
+            # Clean up intermediate files if they exist
+            for pattern in ["umi.*.bam", "umi.*.bam.bai", "umi.*.vcf.gz", "umi.*.vcf.gz.tbi", 
+                           "umi.*.norm.vcf.gz", "umi.*.norm.vcf.gz.tbi", "umi.*.consensus.fa"]:
+                for f in tmp_path.glob(pattern):
+                    try:
+                        f.unlink()
+                    except:
+                        pass
+    
+    @pytest.mark.skipif(
+        subprocess.run(["which", "bcftools"], capture_output=True).returncode != 0,
+        reason="bcftools not available"
+    )
+    def test_umi_consensus_bcftools_multiple_umis(self, tmp_path, reference_fasta, grouped_bam):
+        """Test that the function works with different UMIs from the same BAM."""
+        import os
+        
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            
+            # Files are already in tmp_path, use them with relative paths
+            bam_name = grouped_bam.name
+            ref_name = reference_fasta.name
+            
+            # Test with first UMI
+            umi1 = "TESTUMI1"
+            result1 = umi_consensus_bcftools(
+                umi=umi1,
+                bam=Path(bam_name),
+                ref=Path(ref_name)
+            )
+            
+            assert Path(result1).exists()
+            
+            # Test with second UMI
+            umi2 = "TESTUMI2"
+            result2 = umi_consensus_bcftools(
+                umi=umi2,
+                bam=Path(bam_name),
+                ref=Path(ref_name)
+            )
+            
+            assert Path(result2).exists()
+            assert result1 != result2, "Different UMIs should produce different output files"
+            
+            # Verify both consensus files have content
+            with open(result1) as f:
+                seq1 = "".join(line.strip() for line in f.readlines()[1:])
+            with open(result2) as f:
+                seq2 = "".join(line.strip() for line in f.readlines()[1:])
+            
+            assert len(seq1) > 0
+            assert len(seq2) > 0
+            
+            print(f"\n✅ Multiple UMI test passed!")
+            print(f"   UMI1 consensus length: {len(seq1)} bp")
+            print(f"   UMI2 consensus length: {len(seq2)} bp")
+            
+        finally:
+            os.chdir(original_cwd)
+            # Clean up
+            for pattern in ["umi.*.bam", "umi.*.bam.bai", "umi.*.vcf.gz", "umi.*.vcf.gz.tbi", 
+                           "umi.*.norm.vcf.gz", "umi.*.norm.vcf.gz.tbi", "umi.*.consensus.fa"]:
+                for f in tmp_path.glob(pattern):
+                    try:
+                        f.unlink()
+                    except:
+                        pass
+    
+    def test_umi_consensus_bcftools_nonexistent_umi(self, tmp_path, reference_fasta, grouped_bam):
+        """Test that the function handles UMIs that don't exist in the BAM."""
+        import os
+        
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            
+            # Files are already in tmp_path, use them with relative paths
+            bam_name = grouped_bam.name
+            ref_name = reference_fasta.name
+            
+            # Try with a UMI that doesn't exist
+            umi = "NONEXISTENT_UMI"
+            
+            # This should either raise an error or create an empty BAM
+            # The behavior depends on bcftools handling of empty BAMs
+            try:
+                result = umi_consensus_bcftools(
+                    umi=umi,
+                    bam=Path(bam_name),
+                    ref=Path(ref_name)
+                )
+                # If it succeeds, the consensus might be empty or just the reference
+                consensus_path = Path(result)
+                # The function should still return a path even if no reads match
+                assert consensus_path.name == f"umi.{umi}.consensus.fa"
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                # It's acceptable for the function to fail if no reads match
+                pass
+            
+        finally:
+            os.chdir(original_cwd)
+            # Clean up
+            for pattern in ["umi.*.bam", "umi.*.bam.bai", "umi.*.vcf.gz", "umi.*.vcf.gz.tbi", 
+                           "umi.*.norm.vcf.gz", "umi.*.norm.vcf.gz.tbi", "umi.*.consensus.fa"]:
+                for f in tmp_path.glob(pattern):
+                    try:
+                        f.unlink()
+                    except:
+                        pass
+
+
 def test_module_imports():
     """Test that the consensus module can be imported without errors."""
     from scripts import consensus
@@ -420,6 +680,7 @@ def test_module_imports():
     assert hasattr(consensus, 'write_group_fastq')
     assert hasattr(consensus, 'check_dependencies')
     assert hasattr(consensus, 'process_grouped_bam')
+    assert hasattr(consensus, 'umi_consensus_bcftools')
 
 
 if __name__ == "__main__":

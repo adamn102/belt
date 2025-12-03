@@ -19,144 +19,17 @@ except ImportError:
     
     log = MockLog
 
-
-def long_read_umi_grouping(reference, alignedReads, correctedUMIs, outputDir, grouping="UMI1", threshold=2):
-    """
-    Generate grouped FASTQ files from long reads using corrected UMIs.
-    Supports variable numbers of UMIs (UMI1, UMI2, UMI3, etc.) or legacy format (5pUMI, 3pUMI).
-    
-    :param reference: Path to the reference genome.
-    :param alignedReads: Path to the BAM file with aligned reads.
-    :param correctedUMIs: Path to the CSV file with corrected UMIs (must have 'Read Name' column and UMI columns).
-    :param outputDir: Directory where the output files will be saved.
-    :param grouping: Which UMI column to group by (e.g., 'UMI1', '5pUMI'). Default: 'UMI1'.
-    :param threshold: Minimum number of reads per UMI group to include. Default: 2.
-    """
-    os.makedirs(outputDir, exist_ok=True)
-
-    sampleName = os.path.basename(alignedReads).split(".")[0]
-    logger = log()
-    logger.log_message("Starting long read UMI grouping...")
-
-    # Read in corrected UMIs CSV
-    df = pd.read_csv(
-        correctedUMIs,
-        low_memory=False,
-        keep_default_na=False  # so "NA" stays "NA" instead of NaN, optional
-    )
-    
-    # Verify required columns exist
-    if "Read Name" not in df.columns:
-        raise ValueError(f"'Read Name' column not found in {correctedUMIs}")
-    
-    if grouping not in df.columns:
-        raise ValueError(f"Grouping column '{grouping}' not found in {correctedUMIs}. Available columns: {list(df.columns)}")
-    
-    # Clean up UMI grouping
-    df[grouping] = df[grouping].replace(["", "NoMatch", "NoBarcode"], pd.NA)
-
-    # Group by selected UMI grouping
-    grouped = df.groupby(grouping).agg({
-        "Read Name": ["count", lambda x: list(x)]
-    })
-
-
-    grouped.columns = ["ReadCount", "ReadNames"]
-
-    # Filter groups by threshold
-    filtered = grouped[grouped["ReadCount"] >= threshold]
-
-    filtered_csv = os.path.join(outputDir, f"{sampleName}_filtered_umi_groups.csv")
-    filtered.reset_index().to_csv(filtered_csv, index=False)
-    logger.log_message(f"Filtered UMI groups saved to {filtered_csv}")
-
-    # Create output dir per sample
-    sample_output_dir = os.path.join(outputDir, sampleName)
-    os.makedirs(sample_output_dir, exist_ok=True)
-
-    # Read name -> UMI lookup
-    read_to_umis = df.set_index("Read Name")[df.columns[1:]].to_dict(orient="index")
-
-    # print(read_to_umis)
-
-    # Iterate over UMI groups
-    for umi, row in filtered.iterrows():
-        out_fastq = os.path.join(sample_output_dir, f"{umi}_reads.fastq")
-
-        extract_reads_to_fastq(
-            read_names=row["ReadNames"],
-            bam_path=alignedReads,
-            output_fastq_path=out_fastq,
-            read_umi_lookup=read_to_umis
-        )
-
-    logger.log_message(f"Grouped FASTQ files written to {sample_output_dir}")
-
-
-def extract_reads_to_fastq(
-        read_names,
-        bam_path,
-        output_fastq_path,
-        read_umi_lookup
-        ):
-    """
-    Extract reads from BAM and write FASTQ with UMI annotations.
-    Handles variable numbers of UMIs (UMI1, UMI2, etc.) or legacy format (5pUMI, 3pUMI).
-
-    Parameters:
-        read_names (Iterable[str]): Read names to extract.
-        bam_path (str): Path to BAM file.
-        output_fastq_path (str): Output FASTQ file path.
-        read_umi_lookup (dict): Read name -> UMI info dictionary.
-    """
-    read_names_set = set(read_names)
-    bamfile = pysam.AlignmentFile(bam_path, "rb")
-    n_written = 0
-
-    with open(output_fastq_path, "w") as fastq_out:
-        for read in bamfile.fetch(until_eof=True):
-            if read.query_name in read_names_set and not read.is_secondary and not read.is_supplementary:
-                seq = read.query_sequence
-                qual = read.qual
-
-                if seq and qual:
-                    umi_info = read_umi_lookup.get(read.query_name, {})
-                    
-                    # Build UMI string dynamically based on available UMI columns
-                    umi_parts = []
-                    if umi_info:
-                        # Sort keys to ensure consistent ordering (UMI1, UMI2, etc.)
-                        for umi_key in sorted(umi_info.keys()):
-                            umi_value = umi_info.get(umi_key, "NA")
-                            umi_parts.append(f"{umi_key}:{umi_value}")
-                    
-                    # Build header with all UMIs
-                    if umi_parts:
-                        umi_string = "|".join(umi_parts)
-                        header = f"{read.query_name}|{umi_string}"
-                    else:
-                        header = f"{read.query_name}|UMI:NA"
-                    
-                    # Write FASTQ format
-                    fastq_out.write(f"@{header}\n{seq}\n+\n{qual}\n")
-                    n_written += 1
-
-    bamfile.close()
-
-    if n_written == 0:
-        print(f"Warning: No reads written for {output_fastq_path}")
-
 import os, subprocess, pysam, pandas as pd
 
 def long_read_umi_grouping_fast(
-        reference, alignedReads, correctedUMIs, outputDir,
-        grouping="UMI1", threshold=5, threads=8, write_fastq=False
+        alignedReads, correctedUMIs, outputDir,
+        grouping="UMI1", threshold=5, threads=8, write_fastq=False, log_dir=None,
+        umi2_majority_threshold=0.5
         ):
     """
     Fast UMI grouping using BAM tagging and sorting.
     Supports variable numbers of UMIs (UMI1, UMI2, etc.) or legacy format (5pUMI, 3pUMI).
     
-    :param reference: Path to the reference genome.
     :param alignedReads: Path to the BAM file with aligned reads.
     :param correctedUMIs: Path to the CSV file with corrected UMIs.
     :param outputDir: Directory where the output files will be saved.
@@ -164,6 +37,17 @@ def long_read_umi_grouping_fast(
     :param threshold: Minimum number of reads per UMI group. Default: 5.
     :param threads: Number of threads for samtools sort. Default: 8.
     :param write_fastq: If True, also write FASTQ files per UMI group with full UMI annotations. Default: False.
+    :param log_dir: Directory where log files will be saved. If None, uses outputDir.
+    :param umi2_majority_threshold: When grouping by UMI1 and UMI2 exists, the fraction (0-1) 
+                                     of reads that must have the majority UMI2 species for that 
+                                     UMI1 group to be kept. Only reads matching the majority UMI2 
+                                     are retained. Default: 0.5 (50%).
+    
+    Additional filtering when grouping by UMI1 and UMI2 exists:
+    - For each UMI1 group passing the read count threshold, identify the most common UMI2 species
+    - If the majority UMI2 represents >= umi2_majority_threshold fraction of reads, keep the group
+    - Within kept groups, only retain reads that have the majority UMI2 species
+    - Metrics for this filter are recorded in the JSON log.
     """
     os.makedirs(outputDir, exist_ok=True)
     sample = os.path.basename(alignedReads).split(".")[0]
@@ -204,15 +88,143 @@ def long_read_umi_grouping_fast(
 
     counts = df[gcol].value_counts(dropna=True)
     keepers = counts[counts >= threshold]
+
+    # Apply UMI2-majority filter only when grouping by UMI1 and UMI2 exists
+    umi2_filter_applied = False
+    groups_passing_umi2 = None
+    fraction_passing_umi2 = None
+    reads_before_umi2_filter = 0
+    reads_after_umi2_filter = 0
+    umi1_to_majority_umi2 = {}  # Track majority UMI2 for each UMI1
+    
+    if gcol == "UMI1" and ("UMI2" in df.columns):
+        umi2_filter_applied = True
+        passing_umi1_values = []
+        # Ensure UMI2 invalid placeholders are NA for counting
+        df["UMI2"] = df["UMI2"].replace(["", "NoMatch", "NoBarcode"], pd.NA)
+        
+        for umi1_value in keepers.index:
+            sub = df.loc[df[gcol] == umi1_value, [gcol, "UMI2"]]
+            total_in_umi1 = int(sub.shape[0])
+            reads_before_umi2_filter += total_in_umi1
+            
+            if total_in_umi1 == 0:
+                continue
+                
+            vc2 = sub["UMI2"].value_counts(dropna=True)
+            if vc2.empty:
+                continue
+                
+            majority_umi2 = vc2.index[0]
+            majority_count = int(vc2.iloc[0])
+            majority_fraction = majority_count / total_in_umi1
+            
+            # Check if majority UMI2 meets threshold AND has enough reads after filtering
+            if majority_fraction >= umi2_majority_threshold and majority_count >= threshold:
+                passing_umi1_values.append(umi1_value)
+                umi1_to_majority_umi2[umi1_value] = majority_umi2
+                reads_after_umi2_filter += majority_count
+        
+        keepers = keepers.loc[keepers.index.isin(passing_umi1_values)]
+        groups_passing_umi2 = int(len(keepers))
+        groups_passing_threshold = int(counts[counts >= threshold].shape[0])
+        fraction_passing_umi2 = (
+            (groups_passing_umi2 / groups_passing_threshold)
+            if groups_passing_threshold > 0 else 0.0
+        )
+
+    # Prepare log and filtered CSV after all filters
+    logs_dir = log_dir if log_dir else outputDir
+    os.makedirs(logs_dir, exist_ok=True)
+    log_json_path = os.path.join(logs_dir, f"{sample}_umi_group.log.json")
     filt_csv = os.path.join(outputDir, f"{sample}_filtered_umi_groups.csv")
     keepers.rename("ReadCount").rename_axis(gcol).reset_index().to_csv(filt_csv, index=False)
+
     if keepers.empty:
-        logger.log_message("No UMIs pass threshold; done.");
-        return
+        try:
+            import json, datetime
+            total_unique = int(counts.shape[0])
+            passing_threshold = int(counts[counts >= threshold].shape[0])
+            fraction_passing_threshold = (passing_threshold / total_unique) if total_unique > 0 else 0.0
+            log_payload = {
+                "sample": sample,
+                "grouping": gcol,
+                "threshold": int(threshold),
+                "umi2_majority_threshold": float(umi2_majority_threshold),
+                "total_unique_umis": total_unique,
+                "groups_passing_threshold": passing_threshold,
+                "fraction_passing_threshold": fraction_passing_threshold,
+                "umi2_majority_filter_applied": umi2_filter_applied,
+                "groups_passing_umi2_majority": int(groups_passing_umi2 or 0),
+                "fraction_passing_umi2_majority": float(fraction_passing_umi2 or 0.0),
+                "reads_before_umi2_filter": int(reads_before_umi2_filter),
+                "reads_after_umi2_filter": int(reads_after_umi2_filter),
+                "reads_filtered_by_umi2": int(reads_before_umi2_filter - reads_after_umi2_filter),
+                "aligned_bam": alignedReads,
+                "corrected_umis_csv": correctedUMIs,
+                "output_dir": outputDir,
+                "created_at": datetime.datetime.utcnow().isoformat() + "Z"
+            }
+            with open(log_json_path, "w") as jf:
+                json.dump(log_payload, jf)
+            logger.log_message(f"UMI grouping log written: {log_json_path}")
+        except Exception as e:
+            print(f"Warning: failed to write JSON log: {e}")
+        logger.log_message("No UMIs pass filters; done.");
+        return log_json_path
+
+    # Write JSON log with requested metrics when there are keepers
+    try:
+        import json, datetime
+        total_unique = int(counts.shape[0])
+        passing_threshold = int(counts[counts >= threshold].shape[0])
+        fraction_passing_threshold = (passing_threshold / total_unique) if total_unique > 0 else 0.0
+        if umi2_filter_applied:
+            groups_passing_umi2 = int(len(keepers))
+            fraction_passing_umi2 = (groups_passing_umi2 / passing_threshold) if passing_threshold > 0 else 0.0
+        log_payload = {
+            "sample": sample,
+            "grouping": gcol,
+            "threshold": int(threshold),
+            "umi2_majority_threshold": float(umi2_majority_threshold),
+            "total_unique_umis": total_unique,
+            "groups_passing_threshold": passing_threshold,
+            "fraction_passing_threshold": fraction_passing_threshold,
+            "umi2_majority_filter_applied": umi2_filter_applied,
+            "groups_passing_umi2_majority": int(groups_passing_umi2 or 0),
+            "fraction_passing_umi2_majority": float(fraction_passing_umi2 or 0.0),
+            "reads_before_umi2_filter": int(reads_before_umi2_filter),
+            "reads_after_umi2_filter": int(reads_after_umi2_filter),
+            "reads_filtered_by_umi2": int(reads_before_umi2_filter - reads_after_umi2_filter),
+            "aligned_bam": alignedReads,
+            "corrected_umis_csv": correctedUMIs,
+            "output_dir": outputDir,
+            "created_at": datetime.datetime.utcnow().isoformat() + "Z"
+        }
+        with open(log_json_path, "w") as jf:
+            json.dump(log_payload, jf)
+        logger.log_message(f"UMI grouping log written: {log_json_path}")
+    except Exception as e:
+        print(f"Warning: failed to write JSON log: {e}")
 
     # map read name -> UMI for kept groups
-    name_to_umi = dict(df.loc[df[gcol].isin(keepers.index), ["Read Name", gcol]].itertuples(index=False, name=None))
-    del df
+    # When UMI2 filtering is applied, only keep reads with the majority UMI2
+    if umi2_filter_applied and umi1_to_majority_umi2:
+        # Filter reads to only include those with matching majority UMI2
+        kept_rows = []
+        for umi1_value in keepers.index:
+            majority_umi2 = umi1_to_majority_umi2.get(umi1_value)
+            if majority_umi2 is not None:
+                mask = (df[gcol] == umi1_value) & (df["UMI2"] == majority_umi2)
+                kept_rows.append(df.loc[mask, ["Read Name", gcol]])
+        if kept_rows:
+            filtered_df = pd.concat(kept_rows, ignore_index=True)
+            name_to_umi = dict(filtered_df.itertuples(index=False, name=None))
+        else:
+            name_to_umi = {}
+    else:
+        # No UMI2 filtering - keep all reads in passing groups
+        name_to_umi = dict(df.loc[df[gcol].isin(keepers.index), ["Read Name", gcol]].itertuples(index=False, name=None))
 
     # 2) Tag BAM with ZU:<string> = UMI (only for kept reads)
     tagged_bam = os.path.join(outputDir, f"{sample}.tagged.bam")
@@ -293,3 +305,4 @@ def long_read_umi_grouping_fast(
         logger.log_message(f"Wrote {written} reads across {len(keepers)} UMI groups to {out_dir}")
     
     logger.log_message(f"Done. Processed {len(keepers)} UMI groups passing threshold.")
+    return log_json_path

@@ -93,6 +93,7 @@ dmypy.json
 
 # OS
 .DS_Store
+.DS_Store/
 .DS_Store?
 ._*
 .Spotlight-V100
@@ -108,3 +109,19 @@ scripts/__pycache__/whitelist.cpython-312.pyc
 scripts/__pycache__/utils.cpython-312.pyc
 scripts/__pycache__/extract.cpython-312.pyc
 /scripts/__pycache__
+
+# BELT Pipeline (main) - contains large data files
+Belt Pipeline/
+
+# Snakemake
+pipelines/ERRSeq2/.snakemake/
+pipelines/ERRSeq2/.snakemake_timestamp/ 
+.snakemake/
+.snakemake_timestamp
+.DS_Store
+/__pycache__
+demo/.Rhistory
+/scripts/__pycache__
+pipelines/
+pipelines
+test-data/

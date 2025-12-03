@@ -216,8 +216,9 @@ def map(reference, fastq, output_dir, min_length, min_quality, threads, config, 
 @click.option('--min_read_length', default=2000, type=int, help="Minimum expected read length")
 @click.option('--motif', required=False, default=["NNNNNNNNNNNN"], help="Barcode motif sequence(s) - can be a single motif or list of motifs")
 @click.option('--output_dir', required=True, help="Output directory")
+@click.option('--log_dir', required=True, help="Log output directory for JSON logs")
 @click.option('--max_distance', required=False, default=1, type=int, help="Maximum hamming distance for whitelist mapping")
-def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir, max_distance):
+def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir, log_dir, max_distance):
     """Map UMIs to a whitelist and generate paired UMI output from BAM files"""
     # Parse motif if it's a string representation of a list
     if isinstance(motif, str):
@@ -230,21 +231,22 @@ def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir,
     elif not isinstance(motif, list):
         motif = [motif]
     
-    umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir, max_distance)
+    umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir, max_distance, logOutputDir=log_dir)
 
 
 @main.command(name='umi-group')
-@click.option('--reference', required=True, help="Reference genome fasta file")
 @click.option('--alignment', required=True, help="Input BAM file")
 @click.option('--corrected_umis', required=True, help="Path to the corrected UMIs file")
 @click.option('--output_dir', required=True, help="Output directory")
+@click.option('--log_dir', required=False, help="Log output directory for JSON logs")
 @click.option('--grouping', required=True, help="UMI column to group by (e.g., UMI1, UMI2, 5pUMI, 3pUMI)")
 @click.option('--threshold', default=10, type=int, help="Threshold for grouping")
+@click.option('--umi2_majority_threshold', default=0.5, type=float, help="Fraction of reads required to have majority UMI2 (0.0-1.0). Default: 0.5 (50%)")
 
 
-def umi_group(reference, alignment, corrected_umis, output_dir, grouping, threshold):
+def umi_group(alignment, corrected_umis, output_dir, log_dir, grouping, threshold, umi2_majority_threshold):
     """Group long-read UMIs based on corrected UMI data from BAM files"""
-    long_read_umi_grouping_fast(reference, alignment, corrected_umis, output_dir, grouping, threshold)
+    long_read_umi_grouping_fast(alignment, corrected_umis, output_dir, grouping, threshold, log_dir=log_dir, umi2_majority_threshold=umi2_majority_threshold)
 
 
 @main.command()
@@ -282,7 +284,9 @@ def whitelist(reference, alignment, min_read_length, motif, cluster_method, outp
 @click.option('--model', default="r1041_e82_400bps_sup_variant_v5.0.0", help="Medaka model")
 @click.option('--manifest', help="Output manifest file")
 @click.option('--log-file', help="Log file path")
-def consensus(grouped_bam, reference, output_dir, sample, tag, threads, procs, umi_threads, model, manifest, log_file):
+@click.option('--consensus-method', default="bcftools", type=click.Choice(['bcftools', 'medaka', 'default']),
+              help="Consensus calling method (default: bcftools)")
+def consensus(grouped_bam, reference, output_dir, sample, tag, threads, procs, umi_threads, model, manifest, log_file, consensus_method):
     """Generate consensus sequences from grouped BAM file"""
     produced = process_grouped_bam(
         grouped_bam=grouped_bam,
@@ -295,7 +299,8 @@ def consensus(grouped_bam, reference, output_dir, sample, tag, threads, procs, u
         umi_threads=umi_threads,
         model=model,
         manifest=manifest,
-        log_file=log_file
+        log_file=log_file,
+        consensus_method=consensus_method
     )
     for path in produced:
         print(path)
@@ -303,6 +308,81 @@ def consensus(grouped_bam, reference, output_dir, sample, tag, threads, procs, u
 ## TODO Compare long read data to short read whitelist - return the % overlap with whitelist
 
 ## TODO Compare long read data to long read whitelist - return the concordence rate
+
+
+@main.command(name='mutation-call')
+@click.option('--consensus-file', required=True, help="Path to consensus FASTA file")
+@click.option('--reference-file', required=True, help="Path to reference FASTA file")
+@click.option('--sample-name', required=True, help="Name of the sample")
+@click.option('--output-dir', required=True, help="Output directory for results")
+def mutation_call(consensus_file, reference_file, sample_name, output_dir):
+    """Call mutations for a single sample"""
+    from mutation_caller import call_mutations_for_sample
+    
+    call_mutations_for_sample(
+        consensus_file=consensus_file,
+        reference_file=reference_file,
+        sample_name=sample_name,
+        output_dir=output_dir
+    )
+
+
+@main.command(name='mutation-summary')
+@click.option('--output-dir', required=True, help="Output directory for summary results")
+@click.option('--input-dir', help="Input directory containing sample results (default: data/9-mutation_calling)")
+@click.option('--context-dir', help="Directory containing nucleotide context CSV files (optional)")
+@click.option('--reference-dir', help="Directory containing reference FASTA files for validation (optional)")
+def mutation_summary(output_dir, input_dir, context_dir, reference_dir):
+    """Generate summary analysis from individual sample results"""
+    from mutation_summary import create_mutation_summary_from_files
+    
+    create_mutation_summary_from_files(
+        output_dir=output_dir,
+        input_dir=input_dir,
+        context_dir=context_dir,
+        reference_dir=reference_dir
+    )
+
+@main.command(name='umi-meta-analysis')
+@click.option('--umi-dir', required=True, help="Directory containing UMI mapping CSV files")
+@click.option('--output-dir', required=True, help="Output directory for results")
+@click.option('--samples', help="Comma-separated list of sample names")
+def umi_meta_analysis(umi_dir, output_dir, samples):
+    """Perform meta-analysis on UMI mapping data"""
+    from umi_meta_analysis import umi_meta_analysis
+    
+    sample_list = None
+    if samples:
+        sample_list = [s.strip() for s in samples.split(',')]
+    
+    umi_meta_analysis(
+        umi_dir=umi_dir,
+        output_dir=output_dir,
+        samples=sample_list
+    )
+
+@main.command(name='mutation-analyze')
+@click.option('--consensus-dir', required=True, help="Directory containing compiled consensus FASTA files")
+@click.option('--reference-dir', required=True, help="Directory containing reference FASTA files")
+@click.option('--output-dir', required=True, help="Output directory for mutation analysis results")
+@click.option('--samples', help="Comma-separated list of sample names (optional, will auto-detect if not provided)")
+@click.option('--threads', default=4, type=int, help="Number of threads for parallel processing")
+def mutation_analyze(consensus_dir, reference_dir, output_dir, samples, threads):
+    """Analyze mutations in consensus sequences compared to reference sequences (legacy command)"""
+    from mutation_summary import analyze_mutations
+    
+    # Parse samples if provided
+    sample_list = None
+    if samples:
+        sample_list = [s.strip() for s in samples.split(',')]
+    
+    analyze_mutations(
+        consensus_dir=consensus_dir,
+        reference_dir=reference_dir,
+        output_dir=output_dir,
+        samples=sample_list,
+        threads=threads
+    )
 
 
 @main.command()
@@ -323,15 +403,17 @@ def run_pipeline(config):
         config_data['min_read_length'],
         config_data['motif'],
         config_data['whitelist'],
-        config_data['output_dir']
+        config_data['output_dir'],
+        # optional log_dir in config; default to output_dir if absent
+        logOutputDir=config_data.get('log_dir', config_data['output_dir'])
     )
     long_read_umi_grouping_fast(
-        config_data['reference'],
         config_data['alignment'],
         config_data['corrected_umis'],
         config_data['output_dir'],
         config_data['grouping'],
-        config_data['threshold']
+        config_data['threshold'],
+        log_dir=config_data.get('step6_log_dir')
     )
 
 

@@ -1,8 +1,0 @@
-Usage: belt consensus [OPTIONS]
-Try 'belt consensus --help' for help.
-
-Usage: belt consensus [OPTIONS]
-Try 'belt consensus --help' for help.
-
-Error: No such option: --grouped_bam Did you mean --grouped-bam?
-Error: No such option: --grouped_bam Did you mean --grouped-bam?
