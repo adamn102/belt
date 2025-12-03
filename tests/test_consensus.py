@@ -20,6 +20,7 @@ from scripts.consensus import (
     write_group_fastq,
     check_dependencies,
     run_consensus_for_umi,
+    run_consensus_for_umi_bcftools,
     umi_consensus_bcftools
 )
 
@@ -157,9 +158,7 @@ class TestCheckDependencies:
         
         error_msg = str(exc_info.value)
         assert "Missing required tools" in error_msg
-        assert "minimap2" in error_msg
         assert "samtools" in error_msg
-        assert "medaka_variant" in error_msg or "medaka" in error_msg
         assert "bcftools" in error_msg
 
 
@@ -201,90 +200,22 @@ class TestRunConsensusForUmi:
     def test_consensus_function_signature(self):
         """Test that the consensus function has the expected signature."""
         import inspect
-        sig = inspect.signature(run_consensus_for_umi)
-        params = list(sig.parameters.keys())
+        # Test bcftools function signature
+        sig_bcftools = inspect.signature(run_consensus_for_umi_bcftools)
+        params_bcftools = list(sig_bcftools.parameters.keys())
         
-        assert "reads_fq" in params
-        assert "ref_fa" in params
-        assert "meta_dir" in params
-        assert "con_dir" in params
-        assert "umi_threads" in params
-        assert "model" in params
-        assert "umi_safe" in params
+        assert "grouped_bam" in params_bcftools
+        assert "ref_fa" in params_bcftools
+        assert "meta_dir" in params_bcftools
+        assert "con_dir" in params_bcftools
+        assert "umi_threads" in params_bcftools
+        assert "model" in params_bcftools
+        assert "umi_safe" in params_bcftools
+        assert "umi" in params_bcftools
     
-    @pytest.mark.skipif(
-        subprocess.run(["which", "medaka_variant"], capture_output=True).returncode != 0,
-        reason="medaka_variant not available"
-    )
-    def test_consensus_basic_workflow(self, tmp_path, reference_fasta, reads_fastq):
-        """
-        Test the basic consensus workflow with real tools.
-        This is an integration test that requires medaka, minimap2, samtools, bcftools.
-        """
-        # Setup directories
-        meta_dir = tmp_path / "meta"
-        con_dir = tmp_path / "consensus"
-        bam_dir = tmp_path / "bam"
-        log_file = tmp_path / "test.log"
-        
-        umi_safe = "TESTUMI"
-        
-        try:
-            # Run consensus calling
-            result = run_consensus_for_umi(
-                reads_fq=reads_fastq,
-                ref_fa=reference_fasta,
-                meta_dir=meta_dir,
-                con_dir=con_dir,
-                bam_dir=bam_dir,
-                umi_threads=1,
-                model="r1041_e82_400bps_sup_variant_v5.0.0",
-                log_file=log_file,
-                umi_safe=umi_safe
-            )
-            
-            # Verify output
-            consensus_path = Path(result)
-            assert consensus_path.exists()
-            assert consensus_path.name == f"{umi_safe}.fasta"
-            
-            # Verify consensus FASTA content
-            with open(consensus_path) as f:
-                lines = f.readlines()
-            
-            # Should have a header and sequence
-            assert len(lines) >= 2
-            assert lines[0].startswith(">")
-            assert umi_safe in lines[0]
-            
-            # Sequence should not be empty
-            sequence = "".join(line.strip() for line in lines[1:])
-            assert len(sequence) > 0
-            
-            # Verify intermediate files were created
-            assert (meta_dir / "aligned.bam").exists()
-            assert (meta_dir / "aligned.bam.bai").exists()
-            assert (meta_dir / "medaka.vcf").exists()
-            
-            # Verify log file was written
-            assert log_file.exists()
-            log_content = log_file.read_text()
-            assert "Step 1: Aligning reads" in log_content
-            assert "Step 2: Indexing BAM" in log_content
-            assert "Step 3: Calling variants" in log_content
-            assert "Consensus FASTA created" in log_content
-            
-            print(f"\n✅ Consensus test passed!")
-            print(f"   Output: {consensus_path}")
-            print(f"   Sequence length: {len(sequence)} bp")
-            
-        except subprocess.CalledProcessError as e:
-            pytest.fail(f"Consensus calling failed: {e}")
-        except FileNotFoundError as e:
-            pytest.skip(f"Required tool not found: {e}")
     
-    def test_consensus_cleanup_temp_files(self, tmp_path, reference_fasta):
-        """Test that temporary FASTQ files are cleaned up after consensus calling."""
+    def test_consensus_default_not_implemented(self, tmp_path, reference_fasta):
+        """Test that the default run_consensus_for_umi raises NotImplementedError."""
         # Create a temporary FASTQ
         reads_fq = tmp_path / "temp_reads.fastq"
         with open(reads_fq, "w") as f:
@@ -294,12 +225,25 @@ class TestRunConsensusForUmi:
         con_dir = tmp_path / "consensus"
         bam_dir = tmp_path / "bam"
         log_file = tmp_path / "test.log"
+        umi_safe = "TESTUMI"
         
-        assert reads_fq.exists()
+        # Verify that the default function raises NotImplementedError
+        with pytest.raises(NotImplementedError) as exc_info:
+            run_consensus_for_umi(
+                reads_fq=reads_fq,
+                ref_fa=reference_fasta,
+                meta_dir=meta_dir,
+                con_dir=con_dir,
+                bam_dir=bam_dir,
+                umi_threads=1,
+                model="r1041_e82_400bps_sup_variant_v5.0.0",
+                log_file=log_file,
+                umi_safe=umi_safe
+            )
         
-        # Note: This test would need mocking or actual tools to run fully
-        # For now, we just verify the file path setup
-        assert reads_fq.name.endswith(".fastq")
+        # Verify the error message mentions bcftools
+        error_msg = str(exc_info.value)
+        assert "bcftools" in error_msg
 
 
 class TestConsensusIntegration:
@@ -383,39 +327,9 @@ class TestConsensusIntegration:
         bam_dir = tmp_path / "bam"
         log_file = tmp_path / "test.log"
         
-        try:
-            result = run_consensus_for_umi(
-                reads_fq=reads_fq,
-                ref_fa=reference,
-                meta_dir=meta_dir,
-                con_dir=con_dir,
-                bam_dir=bam_dir,
-                umi_threads=1,
-                model="r1041_e82_400bps_sup_variant_v5.0.0",
-                log_file=log_file,
-                umi_safe=umi_safe
-            )
-            
-            consensus_path = Path(result)
-            assert consensus_path.exists()
-            
-            # Read and display consensus
-            with open(consensus_path) as f:
-                lines = f.readlines()
-            
-            sequence = "".join(line.strip() for line in lines[1:])
-            
-            print(f"\n✅ Real data consensus test passed!")
-            print(f"   Consensus length: {len(sequence)} bp")
-            print(f"   Output: {consensus_path}")
-            
-            # Show first 100bp of sequence
-            print(f"   First 100bp: {sequence[:100]}")
-            
-        except subprocess.CalledProcessError as e:
-            pytest.fail(f"Consensus calling failed: {e}")
-        except FileNotFoundError as e:
-            pytest.skip(f"Required tool not found: {e}")
+        # Note: This test requires a grouped BAM with ZU tags, which we don't have here
+        # For now, skip this test or convert it to use bcftools method with grouped BAM
+        pytest.skip("Integration test requires grouped BAM with ZU tags - use bcftools method instead")
 
 
 class TestUmiConsensusBcftools:
@@ -643,21 +557,18 @@ class TestUmiConsensusBcftools:
             # Try with a UMI that doesn't exist
             umi = "NONEXISTENT_UMI"
             
-            # This should either raise an error or create an empty BAM
-            # The behavior depends on bcftools handling of empty BAMs
-            try:
-                result = umi_consensus_bcftools(
+            # The function should raise ValueError when no reads are found for the UMI
+            with pytest.raises(ValueError) as exc_info:
+                umi_consensus_bcftools(
                     umi=umi,
                     bam=Path(bam_name),
                     ref=Path(ref_name)
                 )
-                # If it succeeds, the consensus might be empty or just the reference
-                consensus_path = Path(result)
-                # The function should still return a path even if no reads match
-                assert consensus_path.name == f"umi.{umi}.consensus.fa"
-            except (subprocess.CalledProcessError, FileNotFoundError):
-                # It's acceptable for the function to fail if no reads match
-                pass
+            
+            # Verify the error message mentions the UMI
+            error_msg = str(exc_info.value)
+            assert umi in error_msg
+            assert "No reads found" in error_msg
             
         finally:
             os.chdir(original_cwd)
@@ -676,6 +587,7 @@ def test_module_imports():
     from scripts import consensus
     
     assert hasattr(consensus, 'run_consensus_for_umi')
+    assert hasattr(consensus, 'run_consensus_for_umi_bcftools')
     assert hasattr(consensus, 'sanitize_umi_name')
     assert hasattr(consensus, 'write_group_fastq')
     assert hasattr(consensus, 'check_dependencies')

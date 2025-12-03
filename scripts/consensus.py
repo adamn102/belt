@@ -7,7 +7,6 @@ Generate consensus sequences from grouped BAM files
 import os
 import re
 import sys
-import itertools
 import subprocess
 import tempfile
 import logging
@@ -356,210 +355,13 @@ def run_consensus_for_umi(reads_fq: Path, ref_fa: Path, meta_dir: Path,
         Path to generated consensus FASTA file
     """
     raise NotImplementedError(
-        "Default consensus method not implemented. Use --consensus-method bcftools or medaka"
+        "Default consensus method not implemented. Use --consensus-method bcftools"
     ) 
-
-def run_consensus_for_umi_medaka(reads_fq: Path, ref_fa: Path, meta_dir: Path, 
-                                 con_dir: Path, bam_dir: Path, umi_threads: int, 
-                                 model: str, log_file: Path, umi_safe: str) -> str:
-    """
-    Generate consensus sequence for one UMI group using medaka (legacy method).
-    
-    Pipeline:
-    1. Align reads to reference with minimap2
-    2. Index BAM file
-    3. Call variants with medaka_variant
-    4. Normalize and compress VCF
-    5. Generate consensus FASTA with bcftools consensus
-    
-    Args:
-        reads_fq: Path to FASTQ file with reads for this UMI
-        ref_fa: Path to reference FASTA
-        meta_dir: Directory for intermediate files
-        con_dir: Directory for final consensus output
-        bam_dir: Directory for BAM files (optional, not used currently)
-        umi_threads: Number of threads to use
-        model: Medaka model name
-        log_file: Path to log file
-        umi_safe: Sanitized UMI name for output files
-    
-    Returns:
-        Path to generated consensus FASTA file
-    """
-    logfh = open(log_file, "a") if log_file else subprocess.DEVNULL
-    
-    # Create directories
-    meta_dir.mkdir(parents=True, exist_ok=True)
-    con_dir.mkdir(parents=True, exist_ok=True)
-    bam_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Define file paths - Option 4 structure
-    align_bam = meta_dir / "aligned.bam"                    # Temporary during processing
-    final_bam = bam_dir / f"{umi_safe}.bam"                # Final location: bam/UMI.bam
-    vcf_raw = meta_dir / "medaka.vcf"
-    vcf_norm = meta_dir / "medaka.norm.vcf.gz"
-    consensus_fasta = con_dir / f"{umi_safe}.fasta"        # Final location: fasta/UMI.fasta
-    
-    try:
-        # Step 1: Align reads to reference with minimap2
-        if logfh is not subprocess.DEVNULL:
-            logfh.write(f"✅ Step 1: Aligning reads to reference for {umi_safe}...\n")
-            logfh.flush()
-        
-        with open(align_bam, 'wb') as bam_out:
-            minimap2_proc = subprocess.Popen(
-                ['minimap2', '-t', str(umi_threads), '-ax', 'map-ont', str(ref_fa), str(reads_fq)],
-                stdout=subprocess.PIPE,
-                stderr=logfh
-            )
-            samtools_proc = subprocess.Popen(
-                ['samtools', 'sort', '-o', str(align_bam)],
-                stdin=minimap2_proc.stdout,
-                stdout=subprocess.DEVNULL,
-                stderr=logfh
-            )
-            minimap2_proc.stdout.close()
-            samtools_proc.communicate()
-            
-        if samtools_proc.returncode != 0:
-            raise subprocess.CalledProcessError(samtools_proc.returncode, 'samtools sort')
-        
-        # Step 2: Index BAM
-        if logfh is not subprocess.DEVNULL:
-            logfh.write(f"✅ Step 2: Indexing BAM for {umi_safe}...\n")
-            logfh.flush()
-            
-        subprocess.run(
-            ['samtools', 'index', str(align_bam)],
-            stdout=logfh,
-            stderr=logfh,
-            check=True
-        )
-        
-        # Step 3: Call variants with medaka_variant
-        if logfh is not subprocess.DEVNULL:
-            logfh.write(f"✅ Step 3: Calling variants with medaka for {umi_safe}...\n")
-            logfh.flush()
-            
-        subprocess.run(
-            [
-                'medaka_variant',
-                '-i', str(reads_fq),
-                '-r', str(ref_fa),
-                '-o', str(meta_dir),
-                '-m', model
-            ],
-            stdout=logfh,
-            stderr=logfh,
-            check=True
-        )
-        
-        # Check if VCF was created
-        if not vcf_raw.exists():
-            raise FileNotFoundError(f"VCF file not found at {vcf_raw}")
-        
-        # Step 4: Normalize and compress VCF
-        if logfh is not subprocess.DEVNULL:
-            logfh.write(f"✅ Step 4: Normalizing VCF for {umi_safe}...\n")
-            logfh.flush()
-        
-        # Index reference if not already indexed
-        fai_file = Path(str(ref_fa) + '.fai')
-        if not fai_file.exists():
-            subprocess.run(
-                ['samtools', 'faidx', str(ref_fa)],
-                stdout=logfh,
-                stderr=logfh,
-                check=True
-            )
-        
-        # Note: Using subprocess.run with list arguments (not shell=True) automatically
-        # handles paths with spaces correctly - no need for shlex.quote
-        subprocess.run(
-            [
-                'bcftools', 'norm',
-                '-f', str(ref_fa),
-                '-Oz',
-                '-o', str(vcf_norm),
-                str(vcf_raw)
-            ],
-            stdout=logfh,
-            stderr=logfh,
-            check=True
-        )
-        
-        # Index normalized VCF
-        subprocess.run(
-            ['bcftools', 'index', str(vcf_norm)],
-            stdout=logfh,
-            stderr=logfh,
-            check=True
-        )
-        
-        # Step 5: Generate consensus FASTA
-        if logfh is not subprocess.DEVNULL:
-            logfh.write(f"✅ Step 5: Generating consensus FASTA for {umi_safe}...\n")
-            logfh.flush()
-        
-        with open(consensus_fasta, 'w') as fasta_out:
-            # Run bcftools consensus and pipe to sed to replace header
-            consensus_proc = subprocess.Popen(
-                ['bcftools', 'consensus', '-f', str(ref_fa), str(vcf_norm)],
-                stdout=subprocess.PIPE,
-                stderr=logfh
-            )
-            
-            # Replace FASTA header with UMI name
-            for line in consensus_proc.stdout:
-                line_str = line.decode('utf-8')
-                if line_str.startswith('>'):
-                    fasta_out.write(f">{umi_safe}\n")
-                else:
-                    fasta_out.write(line_str)
-            
-            consensus_proc.wait()
-            
-            if consensus_proc.returncode != 0:
-                raise subprocess.CalledProcessError(consensus_proc.returncode, 'bcftools consensus')
-        
-        if logfh is not subprocess.DEVNULL:
-            logfh.write(f"🎉 Consensus FASTA created: {consensus_fasta}\n")
-            logfh.flush()
-        
-        # Step 6: Copy aligned BAM to final location
-        if logfh is not subprocess.DEVNULL:
-            logfh.write(f"✅ Step 6: Saving aligned BAM to {final_bam}\n")
-            logfh.flush()
-        
-        import shutil
-        shutil.copy2(str(align_bam), str(final_bam))
-        shutil.copy2(str(align_bam) + ".bai", str(final_bam) + ".bai")
-        
-        if logfh is not subprocess.DEVNULL:
-            logfh.write(f"✅ Complete! BAM: {final_bam}, FASTA: {consensus_fasta}\n")
-            logfh.flush()
-            
-    except Exception as e:
-        if logfh is not subprocess.DEVNULL:
-            logfh.write(f"❌ Error processing {umi_safe}: {e}\n")
-            logfh.flush()
-        raise
-    finally:
-        if logfh is not subprocess.DEVNULL:
-            logfh.close()
-    
-    # Clean up temporary FASTQ
-    try:
-        os.remove(reads_fq)
-    except OSError:
-        pass
-    
-    return str(consensus_fasta)
 
 def check_dependencies():
     """Check if required external tools are available."""
     import shutil
-    required_tools = ['minimap2', 'samtools', 'medaka_variant', 'bcftools']
+    required_tools = ['samtools', 'bcftools']
     missing_tools = []
     
     for tool in required_tools:
@@ -570,7 +372,7 @@ def check_dependencies():
     if missing_tools:
         raise RuntimeError(
             f"Missing required tools: {', '.join(missing_tools)}\n"
-            "Please install: minimap2, samtools, medaka, bcftools"
+            "Please install: samtools, bcftools"
         )
 
 def process_grouped_bam(grouped_bam: str, reference: str, output_dir: str, 
@@ -591,27 +393,17 @@ def process_grouped_bam(grouped_bam: str, reference: str, output_dir: str,
         threads: Total threads (not used directly)
         procs: Number of parallel UMI processes
         umi_threads: Threads per UMI for consensus calling
-        model: Model name (Medaka model for "medaka" method)
+        model: Model name (not used by bcftools, kept for compatibility)
         tmp_root: Temporary directory root
         manifest: Output manifest file path
         log_file: Log file path
-        consensus_method: Consensus calling method ("bcftools", "medaka", or "default")
+        consensus_method: Consensus calling method ("bcftools" or "default")
     
     Returns:
         List of produced consensus FASTA file paths
     """
     # Check dependencies based on method
-    if consensus_method == "medaka":
-        # Medaka requires minimap2, samtools, medaka_variant, bcftools
-        import shutil
-        required_tools = ['minimap2', 'samtools', 'medaka_variant', 'bcftools']
-        missing_tools = [tool for tool in required_tools if shutil.which(tool) is None]
-        if missing_tools:
-            raise RuntimeError(
-                f"Missing required tools for medaka method: {', '.join(missing_tools)}\n"
-                "Please install: minimap2, samtools, medaka, bcftools"
-            )
-    elif consensus_method == "bcftools":
+    if consensus_method == "bcftools":
         # Bcftools method only requires bcftools and samtools
         import shutil
         required_tools = ['bcftools', 'samtools']
@@ -787,20 +579,6 @@ def process_grouped_bam(grouped_bam: str, reference: str, output_dir: str,
             except Exception as fallback_error:
                 logger.error(f"Fallback UMI collection also failed: {fallback_error}")
                 raise
-    else:
-        # For medaka/default, we need the group_iter
-        with pysam.AlignmentFile(grouped_bam, "rb") as bam:
-            # Group reads by UMI tag
-            try:
-                key = lambda r: r.get_tag(tag)
-                for umi, group_iter in itertools.groupby(bam.fetch(until_eof=True), key=key):
-                    umi_safe = sanitize_umi_name(umi)
-                    reads_fq, meta_dir = get_umi_paths(umi_safe)
-                    reads_fq.parent.mkdir(parents=True, exist_ok=True)
-                    umi_list.append((umi, umi_safe, reads_fq, meta_dir, group_iter))
-            except (KeyError, ValueError) as e:
-                logger.error(f"Error grouping reads by UMI tag {tag}: {e}")
-                raise
     
     # Check if we have any UMIs to process
     if len(umi_list) == 0:
@@ -816,39 +594,20 @@ def process_grouped_bam(grouped_bam: str, reference: str, output_dir: str,
     
     with ProcessPoolExecutor(max_workers=procs) as pool:
         for umi, umi_safe, reads_fq, meta_dir, group_iter in umi_list:
-            # Select consensus function based on method
-            if consensus_method == "bcftools":
-                # For bcftools, use pre-extracted BAM if available
-                pre_extracted = umi_bam_files.get(umi) if umi_bam_files else None
-                # Convert Path to absolute path string for ProcessPoolExecutor serialization
-                if pre_extracted is not None:
-                    pre_extracted = Path(pre_extracted).resolve()
-                consensus_func = run_consensus_for_umi_bcftools
-                fut = pool.submit(
-                    consensus_func,
-                    Path(grouped_bam).resolve(), Path(reference).resolve(), 
-                    Path(meta_dir).resolve(), Path(con_dir).resolve(),
-                    Path(bam_dir).resolve(), umi_threads, model, 
-                    Path(log_file).resolve() if log_file else None, umi_safe, umi,
-                    pre_extracted
-                )
-            elif consensus_method == "medaka":
-                # For medaka, we need to write FASTQ first
-                write_group_fastq(umi, group_iter, reads_fq)
-                consensus_func = run_consensus_for_umi_medaka
-                fut = pool.submit(
-                    consensus_func,
-                    reads_fq, Path(reference), meta_dir, con_dir,
-                    bam_dir, umi_threads, model, log_file, umi_safe
-                )
-            else:
-                # Default method - write FASTQ but method not implemented
-                write_group_fastq(umi, group_iter, reads_fq)
-                consensus_func = run_consensus_for_umi
-                fut = pool.submit(
-                    consensus_func,
-                reads_fq, Path(reference), meta_dir, con_dir,
-                bam_dir, umi_threads, model, log_file, umi_safe
+            # Use bcftools method (only supported method)
+            # For bcftools, use pre-extracted BAM if available
+            pre_extracted = umi_bam_files.get(umi) if umi_bam_files else None
+            # Convert Path to absolute path string for ProcessPoolExecutor serialization
+            if pre_extracted is not None:
+                pre_extracted = Path(pre_extracted).resolve()
+            consensus_func = run_consensus_for_umi_bcftools
+            fut = pool.submit(
+                consensus_func,
+                Path(grouped_bam).resolve(), Path(reference).resolve(), 
+                Path(meta_dir).resolve(), Path(con_dir).resolve(),
+                Path(bam_dir).resolve(), umi_threads, model, 
+                Path(log_file).resolve() if log_file else None, umi_safe, umi,
+                pre_extracted
             )
             
             futures.append(fut)
@@ -900,12 +659,13 @@ def main():
                     help="Parallel UMI processes (default: auto-detect from CPU count)")
     ap.add_argument("--umi-threads", type=int, default=2, 
                     help="Threads per UMI for consensus calling (default: 2)")
-    ap.add_argument("--model", default="r1041_e82_400bps_sup_variant_v5.0.0", help="Medaka model")
+    ap.add_argument("--model", default="r1041_e82_400bps_sup_variant_v5.0.0", 
+                    help="Model name (not used by bcftools, kept for compatibility)")
     ap.add_argument("--tmp-root", help="Temporary directory root")
     ap.add_argument("--manifest", help="Output manifest file")
     ap.add_argument("--log-file", help="Log file path")
-    ap.add_argument("--consensus-method", default="bcftools", choices=["bcftools", "medaka", "default"],
-                    help="Consensus calling method (default: 'bcftools', legacy: 'medaka')")
+    ap.add_argument("--consensus-method", default="bcftools", choices=["bcftools"],
+                    help="Consensus calling method (default: 'bcftools')")
     
     args = ap.parse_args()
     
