@@ -50,9 +50,11 @@ def long_read_umi_grouping_fast(
                                      are retained. Default: 0.5 (50%).
     
     Additional filtering when grouping by UMI1 and UMI2 exists:
+    - Only reads with both UMI1 and UMI2 (non-empty) are considered for grouping
     - For each UMI1 group passing the read count threshold, identify the most common UMI2 species
-    - If the majority UMI2 represents >= umi2_majority_threshold fraction of reads, keep the group
-    - Within kept groups, only retain reads that have the majority UMI2 species
+      among reads that have both UMIs
+    - If the majority UMI2 represents >= umi2_majority_threshold fraction of reads with both UMIs, keep the group
+    - Within kept groups, only retain reads that have both UMIs and match the majority UMI2 species
     - Metrics for this filter are recorded in the JSON log.
     """
     os.makedirs(outputDir, exist_ok=True)
@@ -111,11 +113,16 @@ def long_read_umi_grouping_fast(
         df["UMI2"] = df["UMI2"].replace(["", "NoMatch", "NoBarcode"], pd.NA)
         
         for umi1_value in keepers.index:
-            sub = df.loc[df[gcol] == umi1_value, [gcol, "UMI2"]]
-            total_in_umi1 = int(sub.shape[0])
+            # Only consider reads with both UMI1 and UMI2 (non-empty)
+            sub_all = df.loc[df[gcol] == umi1_value, [gcol, "UMI2"]]
+            total_in_umi1 = int(sub_all.shape[0])
             reads_before_umi2_filter += total_in_umi1
             
-            if total_in_umi1 == 0:
+            # Filter to only reads with both UMIs (non-NA UMI2)
+            sub = sub_all[sub_all["UMI2"].notna()]
+            reads_with_both_umis = int(sub.shape[0])
+            
+            if reads_with_both_umis == 0:
                 continue
                 
             vc2 = sub["UMI2"].value_counts(dropna=True)
@@ -124,7 +131,8 @@ def long_read_umi_grouping_fast(
                 
             majority_umi2 = vc2.index[0]
             majority_count = int(vc2.iloc[0])
-            majority_fraction = majority_count / total_in_umi1
+            # Calculate fraction based on reads with both UMIs, not all reads
+            majority_fraction = majority_count / reads_with_both_umis
             
             # Check if majority UMI2 meets threshold AND has enough reads after filtering
             if majority_fraction >= umi2_majority_threshold and majority_count >= threshold:
@@ -224,14 +232,15 @@ def long_read_umi_grouping_fast(
         print(f"Warning: failed to write JSON log: {e}")
 
     # map read name -> UMI for kept groups
-    # When UMI2 filtering is applied, only keep reads with the majority UMI2
+    # When UMI2 filtering is applied, only keep reads with both UMIs and matching majority UMI2
     if umi2_filter_applied and umi1_to_majority_umi2:
-        # Filter reads to only include those with matching majority UMI2
+        # Filter reads to only include those with both UMIs and matching majority UMI2
         kept_rows = []
         for umi1_value in keepers.index:
             majority_umi2 = umi1_to_majority_umi2.get(umi1_value)
             if majority_umi2 is not None:
-                mask = (df[gcol] == umi1_value) & (df["UMI2"] == majority_umi2)
+                # Only keep reads with both UMIs (UMI2 is not NA) and matching majority UMI2
+                mask = (df[gcol] == umi1_value) & (df["UMI2"].notna()) & (df["UMI2"] == majority_umi2)
                 kept_rows.append(df.loc[mask, ["Read Name", gcol]])
         if kept_rows:
             filtered_df = pd.concat(kept_rows, ignore_index=True)
