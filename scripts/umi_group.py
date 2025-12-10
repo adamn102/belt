@@ -233,34 +233,110 @@ def long_read_umi_grouping_fast(
 
     # map read name -> UMI for kept groups
     # When UMI2 filtering is applied, only keep reads with both UMIs and matching majority UMI2
+    # Ensure perfect UMI concordance: each read must have the exact correct UMI1 and UMI2
     if umi2_filter_applied and umi1_to_majority_umi2:
         # Filter reads to only include those with both UMIs and matching majority UMI2
+        # Create lookup that includes both UMI1 and UMI2 for validation
         kept_rows = []
+        read_to_umi1_umi2 = {}  # For validation: read_name -> (UMI1, UMI2)
+        
         for umi1_value in keepers.index:
             majority_umi2 = umi1_to_majority_umi2.get(umi1_value)
             if majority_umi2 is not None:
                 # Only keep reads with both UMIs (UMI2 is not NA) and matching majority UMI2
+                # Perfect concordance: UMI1 must exactly match umi1_value AND UMI2 must exactly match majority_umi2
                 mask = (df[gcol] == umi1_value) & (df["UMI2"].notna()) & (df["UMI2"] == majority_umi2)
-                kept_rows.append(df.loc[mask, ["Read Name", gcol]])
+                matching_reads = df.loc[mask, ["Read Name", gcol, "UMI2"]]
+                
+                # Validate perfect concordance: ensure all reads have exact correct UMIs
+                for _, row in matching_reads.iterrows():
+                    read_name = row["Read Name"]
+                    read_umi1 = row[gcol]
+                    read_umi2 = row["UMI2"]
+                    
+                    # Only include if UMI1 and UMI2 match exactly
+                    if read_umi1 == umi1_value and read_umi2 == majority_umi2:
+                        kept_rows.append({"Read Name": read_name, gcol: read_umi1})
+                        read_to_umi1_umi2[read_name] = (read_umi1, read_umi2)
+        
         if kept_rows:
-            filtered_df = pd.concat(kept_rows, ignore_index=True)
-            name_to_umi = dict(filtered_df.itertuples(index=False, name=None))
+            filtered_df = pd.DataFrame(kept_rows)
+            name_to_umi = dict(filtered_df[["Read Name", gcol]].itertuples(index=False, name=None))
         else:
             name_to_umi = {}
+            read_to_umi1_umi2 = {}
     else:
         # No UMI2 filtering - keep all reads in passing groups
-        name_to_umi = dict(df.loc[df[gcol].isin(keepers.index), ["Read Name", gcol]].itertuples(index=False, name=None))
+        # Still ensure UMI1 concordance (exact match required)
+        passing_mask = df[gcol].isin(keepers.index) & (df[gcol].notna())
+        passing_reads = df.loc[passing_mask, ["Read Name", gcol]]
+        # Validate that UMI1 matches exactly
+        validated_passing = passing_reads[passing_reads[gcol].isin(keepers.index)]
+        name_to_umi = dict(validated_passing.itertuples(index=False, name=None))
+        read_to_umi1_umi2 = None  # Not needed when UMI2 filtering is not applied
 
     # 2) Tag BAM with ZU:<string> = UMI (only for kept reads)
+    # Ensure perfect UMI concordance: validate each read has exact correct UMIs before writing
     tagged_bam = os.path.join(outputDir, f"{sample}.tagged.bam")
+    
+    # Create validation lookup for perfect concordance checking when UMI2 filtering is applied
+    if umi2_filter_applied and umi1_to_majority_umi2:
+        # Create lookup: read_name -> (expected_UMI1, expected_UMI2) for final validation
+        validation_lookup = {}
+        for umi1_value in keepers.index:
+            majority_umi2 = umi1_to_majority_umi2.get(umi1_value)
+            if majority_umi2 is not None:
+                # Get reads with exact correct UMIs for this group
+                mask = (df[gcol] == umi1_value) & (df["UMI2"].notna()) & (df["UMI2"] == majority_umi2)
+                for _, row in df.loc[mask].iterrows():
+                    read_name = row["Read Name"]
+                    read_umi1 = row[gcol]
+                    read_umi2 = row["UMI2"]
+                    # Store only if UMIs match exactly (perfect concordance)
+                    if read_umi1 == umi1_value and read_umi2 == majority_umi2:
+                        validation_lookup[read_name] = (read_umi1, read_umi2)
+    else:
+        validation_lookup = None
+    
     with pysam.AlignmentFile(alignedReads, "rb") as bam_in, \
             pysam.AlignmentFile(tagged_bam, "wb", template=bam_in) as bam_out:
+        reads_written = 0
+        reads_skipped = 0
+        
         for r in bam_in.fetch(until_eof=True):
             umi = name_to_umi.get(r.query_name)
             if umi is None:
                 continue
+            
+            # Final validation for perfect UMI concordance when UMI2 filtering is applied
+            if validation_lookup is not None:
+                expected_umis = validation_lookup.get(r.query_name)
+                if expected_umis is None:
+                    # Read not in validation lookup - skip to ensure perfect concordance
+                    reads_skipped += 1
+                    continue
+                
+                # Verify against original dataframe to ensure perfect match
+                read_row = df[df["Read Name"] == r.query_name]
+                if len(read_row) == 0:
+                    reads_skipped += 1
+                    continue
+                
+                actual_umi1 = read_row[gcol].iloc[0]
+                actual_umi2 = read_row["UMI2"].iloc[0] if "UMI2" in read_row.columns else None
+                expected_umi1, expected_umi2 = expected_umis
+                
+                # Only write if UMIs match exactly (perfect concordance)
+                if actual_umi1 != expected_umi1 or (actual_umi2 is not None and actual_umi2 != expected_umi2):
+                    reads_skipped += 1
+                    continue
+            
             r.set_tag("ZU", str(umi), value_type='Z')
             bam_out.write(r)
+            reads_written += 1
+        
+        if reads_skipped > 0:
+            logger.log_message(f"Perfect concordance validation: {reads_skipped} reads skipped, {reads_written} reads written")
     # index optional, but sort will read sequentially
     # 3) Sort by tag
     grouped_bam = os.path.join(outputDir, f"{sample}.grouped.bam")
