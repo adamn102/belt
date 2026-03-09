@@ -14,7 +14,7 @@ if parent_dir not in sys.path:
 
 from extract import extract_umis
 from whitelist import umi_whitelist
-from umi_map import umi_extraction_map
+from umi_map import umi_extraction_map, export_umi_csv_from_bam
 from umi_group import long_read_umi_grouping_fast
 from consensus import process_grouped_bam
 from map import map_pipeline
@@ -231,8 +231,9 @@ def extract(reference, alignment, min_read_length, motif, output):
 @click.option('--output_dir', required=True, help="Output directory")
 @click.option('--log_dir', required=True, help="Log output directory for JSON logs")
 @click.option('--max_distance', required=False, default=1, type=int, help="Maximum hamming distance for whitelist mapping")
-def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir, log_dir, max_distance):
-    """Map UMIs to a whitelist and generate paired UMI output from BAM files"""
+@click.option('--write_csv', is_flag=True, help="Also write a CSV of corrected UMIs (optional; default is BAM tags only)")
+def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir, log_dir, max_distance, write_csv):
+    """Map UMIs to a whitelist and write a UMI-tagged BAM (U1, U2, ...). Optionally write CSV with --write_csv."""
     # Parse motif if it's a string representation of a list
     if isinstance(motif, str):
         import ast
@@ -244,7 +245,7 @@ def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir,
     elif not isinstance(motif, list):
         motif = [motif]
     
-    umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir, max_distance, logOutputDir=log_dir)
+    umi_extraction_map(reference, alignment, min_read_length, motif, whitelist, output_dir, max_distance, logOutputDir=log_dir, write_csv=write_csv)
 
 
 ################################################################################
@@ -253,7 +254,7 @@ def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir,
 
 @main.command(name='umi-group')
 @click.option('--alignment', required=True, help="Input BAM file")
-@click.option('--corrected_umis', required=True, help="Path to the corrected UMIs file")
+@click.option('--corrected_umis', required=False, default=None, help="Optional path to corrected UMIs CSV. If omitted, UMIs are read from BAM tags (U1, U2, ...)")
 @click.option('--output_dir', required=True, help="Output directory")
 @click.option('--log_dir', required=False, help="Log output directory for JSON logs")
 @click.option('--grouping', required=True, help="UMI column to group by (e.g., UMI1, UMI2, 5pUMI, 3pUMI)")
@@ -262,8 +263,22 @@ def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir,
 
 
 def umi_group(alignment, corrected_umis, output_dir, log_dir, grouping, threshold, umi2_majority_threshold):
-    """Group long-read UMIs based on corrected UMI data from BAM files"""
-    long_read_umi_grouping_fast(alignment, corrected_umis, output_dir, grouping, threshold, log_dir=log_dir, umi2_majority_threshold=umi2_majority_threshold)
+    """Group long-read UMIs. Uses BAM UMI tags (U1, U2, ...) if --corrected_umis is not provided."""
+    long_read_umi_grouping_fast(alignment, output_dir, corrected_umis, grouping, threshold, log_dir=log_dir, umi2_majority_threshold=umi2_majority_threshold)
+
+
+################################################################################
+# Export UMI CSV - Optional: create CSV from UMI-tagged BAM
+################################################################################
+
+@main.command(name='export-umi-csv')
+@click.option('--bam', required=True, help="Path to BAM file with UMI tags (U1, U2, ...)")
+@click.option('--output', required=True, help="Output CSV path")
+def export_umi_csv(bam, output):
+    """Create a CSV of UMI data from a UMI-tagged BAM file (optional export)."""
+    path = export_umi_csv_from_bam(bam, output)
+    print(f"Wrote: {path}")
+
 
 ################################################################################
 # Whitelist - Generate a whitelist of UMIs
@@ -428,13 +443,18 @@ def run_pipeline(config):
         config_data['motif'],
         config_data['whitelist'],
         config_data['output_dir'],
-        # optional log_dir in config; default to output_dir if absent
-        logOutputDir=config_data.get('log_dir', config_data['output_dir'])
+        logOutputDir=config_data.get('log_dir', config_data['output_dir']),
+        write_csv=config_data.get('write_csv', False)
     )
+    # Use UMI-tagged BAM from umi_map; no CSV (UMIs are in BAM tags)
+    sample_name = os.path.basename(config_data['alignment']).split(".")[0]
+    tagged_bam = os.path.join(config_data['output_dir'], f"{sample_name}_umi_tagged.bam")
+    if not os.path.exists(tagged_bam):
+        raise FileNotFoundError(f"Expected UMI-tagged BAM not found: {tagged_bam}")
     long_read_umi_grouping_fast(
-        config_data['alignment'],
-        config_data['corrected_umis'],
+        tagged_bam,
         config_data['output_dir'],
+        None,  # corrected_umis: read from BAM tags
         config_data['grouping'],
         config_data['threshold'],
         log_dir=config_data.get('step6_log_dir')

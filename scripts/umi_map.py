@@ -7,6 +7,7 @@ from collections import Counter
 import pandas as pd
 import os
 import numpy as np
+import pysam
 
 
 def umi_extraction_map(
@@ -17,7 +18,12 @@ def umi_extraction_map(
         whitelist,
         outputDir,
         max_distance=3,
-        logOutputDir=None):
+        logOutputDir=None,
+        write_csv=False):
+    """
+    Extract and correct UMIs, then write a tagged BAM (U1, U2, ... tags).
+    Optionally write a CSV of corrected UMIs (write_csv=True).
+    """
     sampleName = os.path.basename(alignedReads).split(".")[0]
 
     # Initialize output directories
@@ -430,10 +436,41 @@ def umi_extraction_map(
     # Ensure Read Name is string type
     output_df["Read Name"] = output_df["Read Name"].astype(str)
 
-    # Write final paired UMI results with both raw and corrected
-    # NaN values will be written as empty strings, which umi_group handles correctly
-    # Using na_rep='' ensures empty strings in CSV, matching umi_group expectations
-    output_df.to_csv(f"{outputDir}/{sampleName}_Paired_UMIs_read_names.csv", index=False, na_rep='')
+    # Build read_name -> corrected UMI values for BAM tagging (U1=UMI1, U2=UMI2, ...)
+    # Use only corrected columns (umi_names), not _Raw
+    read_to_umis = {}
+    for _, row in output_df.iterrows():
+        rn = str(row["Read Name"])
+        vals = []
+        for col in umi_names:
+            v = row[col] if col in row else None
+            if pd.isna(v) or v == "":
+                vals.append(None)
+            else:
+                vals.append(str(v))
+        read_to_umis[rn] = vals
+
+    # Write tagged BAM: same alignments with U1, U2, ... tags (primary output)
+    tagged_bam_path = os.path.join(outputDir, f"{sampleName}_umi_tagged.bam")
+    add_log(f"Writing UMI-tagged BAM: {tagged_bam_path}")
+    with pysam.AlignmentFile(alignedReads, "rb") as bam_in, \
+         pysam.AlignmentFile(tagged_bam_path, "wb", template=bam_in) as bam_out:
+        for read in bam_in.fetch(until_eof=True):
+            qname = read.query_name
+            umi_vals = read_to_umis.get(qname)
+            if umi_vals is not None:
+                for i, val in enumerate(umi_vals):
+                    if val is not None:
+                        # Tag U1 = UMI1, U2 = UMI2, ... (SAM allows [A-Za-z][A-Za-z0-9])
+                        tag_name = f"U{i + 1}"
+                        read.set_tag(tag_name, val, value_type="Z")
+            bam_out.write(read)
+    add_log("Finished writing UMI-tagged BAM.")
+
+    if write_csv:
+        csv_path = os.path.join(outputDir, f"{sampleName}_Paired_UMIs_read_names.csv")
+        output_df.to_csv(csv_path, index=False, na_rep="")
+        add_log(f"Wrote optional CSV: {csv_path}")
 
     add_log("Finished UMI extraction and mapping.")
     add_log("Begin Analysis...")
@@ -452,7 +489,7 @@ def umi_extraction_map(
         "min_read_length": int(minReadLength),
         "barcode_motifs": list(barcodeMotifs),
         "whitelist_mode": wl_mode,
-        "output_csv": f"{outputDir}/{sampleName}_Paired_UMIs_read_names.csv",
+        "tagged_bam": tagged_bam_path,
         "max_distance": int(max_distance),
         "total_reads": int(total_reads),
         "reads_with_all_umis": int(all_umis_present_count),
@@ -461,6 +498,8 @@ def umi_extraction_map(
         "missing_umi_stats": missing_stats,
         "logs": log_entries
     }
+    if write_csv:
+        summary["output_csv"] = os.path.join(outputDir, f"{sampleName}_Paired_UMIs_read_names.csv")
     # Attach clustering or mapping stats depending on mode
     if wl_mode == "cluster":
         try:
@@ -482,6 +521,49 @@ def umi_extraction_map(
             summary["whitelist_mapping_stats"] = {"error": "mapping stats unavailable"}
     with open(out_path, "w") as jf:
         json.dump(summary, jf, indent=2)
+
+
+def export_umi_csv_from_bam(bam_path, output_csv_path):
+    """
+    Optional: Export a CSV of UMI data from a BAM file that has UMI tags (U1, U2, ...).
+    Writes Read Name, UMI1, UMI2, ... in the same format as the legacy Paired_UMIs CSV.
+
+    :param bam_path: Path to BAM file with U1, U2, ... tags (e.g. from umi_extraction_map).
+    :param output_csv_path: Path for the output CSV file.
+    """
+    with pysam.AlignmentFile(bam_path, "rb") as bam:
+        max_ui = 0
+        for read in bam.fetch(until_eof=True):
+            i = 1
+            while read.has_tag(f"U{i}"):
+                i += 1
+            max_ui = max(max_ui, i - 1)
+    if max_ui == 0:
+        raise ValueError(f"No reads with UMI tags (U1, U2, ...) found in BAM: {bam_path}")
+    umi_cols = [f"UMI{j+1}" for j in range(max_ui)]
+    rows = []
+    with pysam.AlignmentFile(bam_path, "rb") as bam:
+        for read in bam.fetch(until_eof=True):
+            qname = read.query_name
+            if not read.has_tag("U1"):
+                continue
+            row = {"Read Name": qname}
+            for j in range(max_ui):
+                tag = f"U{j+1}"
+                if read.has_tag(tag):
+                    val = read.get_tag(tag)
+                    row[umi_cols[j]] = val if val else ""
+                else:
+                    row[umi_cols[j]] = ""
+            rows.append(row)
+    if not rows:
+        raise ValueError(f"No reads with U1 tag found in BAM: {bam_path}")
+    df = pd.DataFrame(rows)
+    out_dir = os.path.dirname(os.path.abspath(output_csv_path))
+    if out_dir:
+        os.makedirs(out_dir, exist_ok=True)
+    df.to_csv(output_csv_path, index=False, na_rep="")
+    return output_csv_path
 
 
 def cluster_umis_umitools(umi_list, threshold=1, cluster_method="directional"):

@@ -23,8 +23,8 @@ import os, subprocess, pysam, pandas as pd
 
 def long_read_umi_grouping_fast(
         alignedReads, 
-        correctedUMIs, 
         outputDir,
+        correctedUMIs=None, 
         grouping="UMI1", 
         threshold=5, 
         threads=8, 
@@ -37,7 +37,7 @@ def long_read_umi_grouping_fast(
     Supports variable numbers of UMIs (UMI1, UMI2, etc.) or legacy format (5pUMI, 3pUMI).
     
     :param alignedReads: Path to the BAM file with aligned reads.
-    :param correctedUMIs: Path to the CSV file with corrected UMIs.
+    :param correctedUMIs: Optional path to CSV with corrected UMIs. If None or empty, UMIs are read from BAM tags U1, U2, ...
     :param outputDir: Directory where the output files will be saved.
     :param grouping: Which UMI column to group by (e.g., 'UMI1', '5pUMI'). Default: 'UMI1'.
     :param threshold: Minimum number of reads per UMI group. Default: 5.
@@ -62,40 +62,96 @@ def long_read_umi_grouping_fast(
     logger = log()
     logger.log_message("UMI grouping via tag+sort...")
 
-    # 1) Load CSV and determine available UMI columns
-    df = pd.read_csv(
-        correctedUMIs,
-        low_memory=False,
-        keep_default_na=False
-    )
-    
-    # Verify required columns exist
-    if "Read Name" not in df.columns:
-        raise ValueError(f"'Read Name' column not found in {correctedUMIs}")
-    
-    if grouping not in df.columns:
-        available_umis = [col for col in df.columns if col.startswith('UMI') or col.endswith('UMI')]
-        raise ValueError(f"Grouping column '{grouping}' not found. Available UMI columns: {available_umis}")
-    
-    # Get all UMI columns for dtype specification
-    umi_columns = [col for col in df.columns if col != "Read Name"]
-    dtype_dict = {"Read Name": "string"}
-    dtype_dict.update({col: "string" for col in umi_columns})
-    
-    # Reload with proper dtypes (only Read Name and UMI columns)
-    df = pd.read_csv(
-        correctedUMIs,
-        usecols=["Read Name"] + umi_columns,
-        dtype=dtype_dict,
-        low_memory=False,
-        keep_default_na=False
-    )
+    # 1) Load UMI data: from CSV or from BAM tags (U1, U2, ...)
+    if correctedUMIs and str(correctedUMIs).strip():
+        df = pd.read_csv(
+            correctedUMIs,
+            low_memory=False,
+            keep_default_na=False
+        )
+        if "Read Name" not in df.columns:
+            raise ValueError(f"'Read Name' column not found in {correctedUMIs}")
+        if grouping not in df.columns:
+            available_umis = [col for col in df.columns if col.startswith('UMI') or col.endswith('UMI')]
+            raise ValueError(f"Grouping column '{grouping}' not found. Available UMI columns: {available_umis}")
+        umi_columns = [col for col in df.columns if col != "Read Name"]
+        dtype_dict = {"Read Name": "string"}
+        dtype_dict.update({col: "string" for col in umi_columns})
+        df = pd.read_csv(
+            correctedUMIs,
+            usecols=["Read Name"] + umi_columns,
+            dtype=dtype_dict,
+            low_memory=False,
+            keep_default_na=False
+        )
+    else:
+        # Build df from BAM tags U1, U2, ... (U1=UMI1, U2=UMI2, ...)
+        logger.log_message("Reading UMI data from BAM tags (U1, U2, ...)...")
+        # First pass: find max UMI tag index present in the BAM
+        max_ui = 0
+        with pysam.AlignmentFile(alignedReads, "rb") as bam:
+            for read in bam.fetch(until_eof=True):
+                i = 1
+                while read.has_tag(f"U{i}"):
+                    i += 1
+                max_ui = max(max_ui, i - 1)
+        if max_ui == 0:
+            raise ValueError(f"No reads with UMI tags (U1, U2, ...) found in BAM: {alignedReads}")
+        umi_names_bam = [f"UMI{j+1}" for j in range(max_ui)]
+        rows = []
+        with pysam.AlignmentFile(alignedReads, "rb") as bam:
+            for read in bam.fetch(until_eof=True):
+                qname = read.query_name
+                row = {"Read Name": qname}
+                for j in range(max_ui):
+                    tag = f"U{j+1}"
+                    if read.has_tag(tag):
+                        val = read.get_tag(tag)
+                        row[umi_names_bam[j]] = val if val else pd.NA
+                    else:
+                        row[umi_names_bam[j]] = pd.NA
+                rows.append(row)
+        df = pd.DataFrame(rows)
+        umi_columns = umi_names_bam
+        if grouping not in df.columns:
+            raise ValueError(f"Grouping column '{grouping}' not found. BAM has UMI columns: {umi_columns}")
     
     gcol = grouping
     df[gcol] = df[gcol].replace(["", "NoMatch", "NoBarcode"], pd.NA)
 
     counts = df[gcol].value_counts(dropna=True)
     keepers = counts[counts >= threshold]
+
+    # Performance optimization: Limit each UMI group to first 1000 reads early
+    # This reduces memory usage and speeds up all subsequent operations
+    # Note: For UMI2 filtering, we'll limit after UMI2 calculations to ensure
+    # accurate majority detection. For non-UMI2 cases, early limiting is safe.
+    MAX_READS_PER_UMI_GROUP = 1000
+    will_apply_umi2_filter = (gcol == "UMI1" and "UMI2" in df.columns)
+    
+    # Only apply early limiting if we're NOT doing UMI2 filtering
+    # (UMI2 filtering needs to see all reads to calculate accurate majority)
+    if not keepers.empty and not will_apply_umi2_filter:
+        # Filter DataFrame to only include passing UMI groups
+        passing_mask = df[gcol].isin(keepers.index) & (df[gcol].notna())
+        passing_df = df.loc[passing_mask].copy()
+        
+        # Limit each UMI group to first 1000 reads
+        limited_rows = []
+        for umi_value in keepers.index:
+            umi_reads = passing_df[passing_df[gcol] == umi_value]
+            if len(umi_reads) > MAX_READS_PER_UMI_GROUP:
+                umi_reads = umi_reads.head(MAX_READS_PER_UMI_GROUP)
+            limited_rows.append(umi_reads)
+        
+        if limited_rows:
+            # Replace df with limited version for all subsequent operations
+            limited_df = pd.concat(limited_rows, ignore_index=True)
+            # Update keepers to reflect actual limited counts
+            limited_counts = limited_df[gcol].value_counts(dropna=True)
+            keepers = limited_counts[limited_counts.index.isin(keepers.index)]
+            # Use limited_df for all subsequent DataFrame operations
+            df = limited_df
 
     # Apply UMI2-majority filter only when grouping by UMI1 and UMI2 exists
     umi2_filter_applied = False
@@ -154,6 +210,32 @@ def long_read_umi_grouping_fast(
             (groups_passing_umi2 / groups_passing_threshold)
             if groups_passing_threshold > 0 else 0.0
         )
+        
+        # Performance optimization: Limit DataFrame after UMI2 filtering is complete
+        # This reduces memory and speeds up subsequent operations
+        # IMPORTANT: Only limit reads that match the majority UMI2 for each group
+        if not keepers.empty:
+            limited_rows = []
+            for umi_value in keepers.index:
+                majority_umi2 = umi1_to_majority_umi2.get(umi_value)
+                if majority_umi2 is not None:
+                    # Only get reads with both UMIs matching the majority
+                    mask = (df[gcol] == umi_value) & (df["UMI2"].notna()) & (df["UMI2"] == majority_umi2)
+                    majority_reads = df.loc[mask]
+                    
+                    # Limit to first 1000 reads per UMI group
+                    if len(majority_reads) > MAX_READS_PER_UMI_GROUP:
+                        majority_reads = majority_reads.head(MAX_READS_PER_UMI_GROUP)
+                    
+                    limited_rows.append(majority_reads)
+            
+            if limited_rows:
+                limited_df = pd.concat(limited_rows, ignore_index=True)
+                # Update keepers to reflect actual limited counts (but only for groups that still pass threshold)
+                limited_counts = limited_df[gcol].value_counts(dropna=True)
+                # Only keep groups that still meet threshold after limiting
+                keepers = limited_counts[limited_counts >= threshold]
+                df = limited_df
 
     # Prepare log and filtered CSV after all filters
     logs_dir = log_dir if log_dir else outputDir
@@ -234,6 +316,7 @@ def long_read_umi_grouping_fast(
     # map read name -> UMI for kept groups
     # When UMI2 filtering is applied, only keep reads with both UMIs and matching majority UMI2
     # Ensure perfect UMI concordance: each read must have the exact correct UMI1 and UMI2
+    # Note: DataFrame is already limited to MAX_READS_PER_UMI_GROUP per group (if applicable)
     if umi2_filter_applied and umi1_to_majority_umi2:
         # Filter reads to only include those with both UMIs and matching majority UMI2
         # Create lookup that includes both UMI1 and UMI2 for validation
@@ -247,6 +330,10 @@ def long_read_umi_grouping_fast(
                 # Perfect concordance: UMI1 must exactly match umi1_value AND UMI2 must exactly match majority_umi2
                 mask = (df[gcol] == umi1_value) & (df["UMI2"].notna()) & (df["UMI2"] == majority_umi2)
                 matching_reads = df.loc[mask, ["Read Name", gcol, "UMI2"]]
+                
+                # Limit to first 1000 reads per UMI group
+                if len(matching_reads) > MAX_READS_PER_UMI_GROUP:
+                    matching_reads = matching_reads.head(MAX_READS_PER_UMI_GROUP)
                 
                 # Validate perfect concordance: ensure all reads have exact correct UMIs
                 for _, row in matching_reads.iterrows():
@@ -272,7 +359,20 @@ def long_read_umi_grouping_fast(
         passing_reads = df.loc[passing_mask, ["Read Name", gcol]]
         # Validate that UMI1 matches exactly
         validated_passing = passing_reads[passing_reads[gcol].isin(keepers.index)]
-        name_to_umi = dict(validated_passing.itertuples(index=False, name=None))
+        
+        # Limit each UMI group to first 1000 reads
+        if len(validated_passing) > 0:
+            limited_reads = []
+            for umi_value in validated_passing[gcol].unique():
+                umi_reads = validated_passing[validated_passing[gcol] == umi_value]
+                if len(umi_reads) > MAX_READS_PER_UMI_GROUP:
+                    umi_reads = umi_reads.head(MAX_READS_PER_UMI_GROUP)
+                limited_reads.append(umi_reads)
+            
+            if limited_reads:
+                validated_passing = pd.concat(limited_reads, ignore_index=True)
+        
+        name_to_umi = dict(validated_passing.itertuples(index=False, name=None)) if len(validated_passing) > 0 else {}
         read_to_umi1_umi2 = None  # Not needed when UMI2 filtering is not applied
 
     # 2) Tag BAM with ZU:<string> = UMI (only for kept reads)
@@ -280,21 +380,18 @@ def long_read_umi_grouping_fast(
     tagged_bam = os.path.join(outputDir, f"{sample}.tagged.bam")
     
     # Create validation lookup for perfect concordance checking when UMI2 filtering is applied
+    # Only include reads that are in name_to_umi (already limited to 1000 per group)
     if umi2_filter_applied and umi1_to_majority_umi2:
         # Create lookup: read_name -> (expected_UMI1, expected_UMI2) for final validation
+        # Only include reads that are in name_to_umi to maintain consistency with the limit
         validation_lookup = {}
-        for umi1_value in keepers.index:
-            majority_umi2 = umi1_to_majority_umi2.get(umi1_value)
-            if majority_umi2 is not None:
-                # Get reads with exact correct UMIs for this group
-                mask = (df[gcol] == umi1_value) & (df["UMI2"].notna()) & (df["UMI2"] == majority_umi2)
-                for _, row in df.loc[mask].iterrows():
-                    read_name = row["Read Name"]
-                    read_umi1 = row[gcol]
-                    read_umi2 = row["UMI2"]
-                    # Store only if UMIs match exactly (perfect concordance)
-                    if read_umi1 == umi1_value and read_umi2 == majority_umi2:
-                        validation_lookup[read_name] = (read_umi1, read_umi2)
+        for read_name in name_to_umi.keys():
+            read_row = df[df["Read Name"] == read_name]
+            if len(read_row) > 0:
+                read_umi1 = read_row[gcol].iloc[0]
+                read_umi2 = read_row["UMI2"].iloc[0] if "UMI2" in read_row.columns else None
+                if read_umi2 is not None:
+                    validation_lookup[read_name] = (read_umi1, read_umi2)
     else:
         validation_lookup = None
     
