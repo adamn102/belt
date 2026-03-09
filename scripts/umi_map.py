@@ -19,7 +19,7 @@ def umi_extraction_map(
         outputDir,
         max_distance=3,
         logOutputDir=None,
-        write_csv=False):
+        write_csv=True):
     """
     Extract and correct UMIs, then write a tagged BAM (U1, U2, ... tags).
     Optionally write a CSV of corrected UMIs (write_csv=True).
@@ -404,65 +404,32 @@ def umi_extraction_map(
 
 
 
-    # --- Standardized output: Include both raw and corrected UMIs for Hamming distance analysis
-    # Format: Read Name, UMI1_Raw, UMI1, UMI2_Raw, UMI2, etc.
-    # Where UMI1, UMI2, etc. are the corrected/mapped UMIs (backward compatible)
-    
-    # Merge raw and corrected UMIs into output dataframe
-    output_df = df[["Read Name"]].copy()
-    
-    # Add raw and corrected UMI columns
-    for col in umi_names:
-        # Add raw UMI column (from raw_df)
-        raw_col = f"{col}_Raw"
-        if col in raw_df.columns:
-            output_df[raw_col] = raw_df[col]
-        else:
-            # If raw column doesn't exist (shouldn't happen), use corrected as fallback
-            output_df[raw_col] = df[col] if col in df.columns else None
-        
-        # Add corrected UMI column (from df - this is backward compatible)
-        if col in df.columns:
-            output_df[col] = df[col]
-        else:
-            output_df[col] = None
-    
-    # Ensure consistent data types for CSV output (compatible with downstream steps)
-    # Convert UMI columns to string type, ensuring proper handling of NaN values
-    for col in output_df.columns:
-        if col != "Read Name":
-            output_df[col] = output_df[col].apply(lambda x: str(x) if pd.notna(x) else pd.NA)
-    
-    # Ensure Read Name is string type
-    output_df["Read Name"] = output_df["Read Name"].astype(str)
-
     # Build read_name -> corrected UMI values for BAM tagging (U1=UMI1, U2=UMI2, ...)
     # and read_name -> raw UMI values (R1=UMI1_Raw, R2=UMI2_Raw, ...)
+    # Use itertuples for faster iteration than iterrows.
     read_to_umis = {}
     read_to_raw_umis = {}
 
     # Corrected UMIs from df (current corrected/mapped table)
-    for _, row in df[["Read Name"] + umi_names].iterrows():
-        rn = str(row["Read Name"])
+    for row in df[["Read Name"] + umi_names].itertuples(index=False):
+        rn = str(row[0])
         vals = []
-        for col in umi_names:
-            v = row[col] if col in row else None
-            if pd.isna(v) or v == "":
+        for val in row[1:]:
+            if pd.isna(val) or val == "":
                 vals.append(None)
             else:
-                vals.append(str(v))
+                vals.append(str(val))
         read_to_umis[rn] = vals
 
     # Raw UMIs from raw_df (pre-correction snapshot)
-    for _, row in raw_df[["Read Name"] + umi_names].iterrows():
-        rn = str(row["Read Name"])
+    for row in raw_df[["Read Name"] + umi_names].itertuples(index=False):
+        rn = str(row[0])
         vals = []
-        for col in umi_names:
-            v = row[col] if col in row else None
-            if pd.isna(v) or v == "":
+        for val in row[1:]:
+            if pd.isna(val) or val == "":
                 vals.append(None)
             else:
-                vals.append(str(v))
+                vals.append(str(val))
         read_to_raw_umis[rn] = vals
 
     # Write tagged BAM: same alignments with U1, U2, ... tags (primary output)
@@ -492,6 +459,24 @@ def umi_extraction_map(
     add_log("Finished writing UMI-tagged BAM.")
 
     if write_csv:
+        # --- Standardized output: Include both raw and corrected UMIs for Hamming distance analysis
+        # Format: Read Name, UMI1_Raw, UMI1, UMI2_Raw, UMI2, etc.
+        # Where UMI1, UMI2, etc. are the corrected/mapped UMIs (backward compatible)
+        output_df = raw_df[["Read Name"]].copy()
+
+        for col in umi_names:
+            raw_col = f"{col}_Raw"
+            # Raw from raw_df
+            output_df[raw_col] = raw_df[col] if col in raw_df.columns else None
+            # Corrected from df
+            output_df[col] = df[col] if col in df.columns else None
+
+        # Ensure consistent data types for CSV output (compatible with downstream steps)
+        for col in output_df.columns:
+            if col != "Read Name":
+                output_df[col] = output_df[col].apply(lambda x: str(x) if pd.notna(x) else pd.NA)
+        output_df["Read Name"] = output_df["Read Name"].astype(str)
+
         csv_path = os.path.join(outputDir, f"{sampleName}_Paired_UMIs_read_names.csv")
         output_df.to_csv(csv_path, index=False, na_rep="")
         add_log(f"Wrote optional CSV: {csv_path}")

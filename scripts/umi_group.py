@@ -64,18 +64,21 @@ def long_read_umi_grouping_fast(
     logger = log()
     logger.log_message("UMI grouping via tag+sort...")
 
-    # 1) Load UMI data: from CSV or from BAM tags (U1, U2, ...)
+    # 1) Load UMI data: from CSV (if provided) or from BAM tags (U1, U2, ...)
     if correctedUMIs and str(correctedUMIs).strip():
+        # CSV-based path (legacy / tests)
         df = pd.read_csv(
             correctedUMIs,
             low_memory=False,
-            keep_default_na=False
+            keep_default_na=False,
         )
         if "Read Name" not in df.columns:
             raise ValueError(f"'Read Name' column not found in {correctedUMIs}")
         if grouping not in df.columns:
-            available_umis = [col for col in df.columns if col.startswith('UMI') or col.endswith('UMI')]
-            raise ValueError(f"Grouping column '{grouping}' not found. Available UMI columns: {available_umis}")
+            available_umis = [col for col in df.columns if col.startswith("UMI") or col.endswith("UMI")]
+            raise ValueError(
+                f"Grouping column '{grouping}' not found. Available UMI columns: {available_umis}"
+            )
         umi_columns = [col for col in df.columns if col != "Read Name"]
         dtype_dict = {"Read Name": "string"}
         dtype_dict.update({col: "string" for col in umi_columns})
@@ -84,7 +87,7 @@ def long_read_umi_grouping_fast(
             usecols=["Read Name"] + umi_columns,
             dtype=dtype_dict,
             low_memory=False,
-            keep_default_na=False
+            keep_default_na=False,
         )
     else:
         # Build df from BAM tags U1, U2, ... (U1=UMI1, U2=UMI2, ...)
@@ -239,6 +242,15 @@ def long_read_umi_grouping_fast(
                 keepers = limited_counts[limited_counts >= threshold]
                 df = limited_df
 
+    # Build simple lookup dicts for fast read-name → UMI access in downstream steps.
+    # These replace expensive df[...] lookups inside loops.
+    read_to_umi1 = dict(df[["Read Name", gcol]].itertuples(index=False, name=None))
+    read_to_umi2 = (
+        dict(df[["Read Name", "UMI2"]].itertuples(index=False, name=None))
+        if "UMI2" in df.columns
+        else {}
+    )
+
     # Prepare log and filtered CSV after all filters
     logs_dir = log_dir if log_dir else outputDir
     os.makedirs(logs_dir, exist_ok=True)
@@ -389,12 +401,10 @@ def long_read_umi_grouping_fast(
         # Only include reads that are in name_to_umi to maintain consistency with the limit
         validation_lookup = {}
         for read_name in name_to_umi.keys():
-            read_row = df[df["Read Name"] == read_name]
-            if len(read_row) > 0:
-                read_umi1 = read_row[gcol].iloc[0]
-                read_umi2 = read_row["UMI2"].iloc[0] if "UMI2" in read_row.columns else None
-                if read_umi2 is not None:
-                    validation_lookup[read_name] = (read_umi1, read_umi2)
+            read_umi1 = read_to_umi1.get(read_name)
+            read_umi2 = read_to_umi2.get(read_name)
+            if read_umi1 is not None and read_umi2 is not None:
+                validation_lookup[read_name] = (read_umi1, read_umi2)
     else:
         validation_lookup = None
     
@@ -410,20 +420,19 @@ def long_read_umi_grouping_fast(
             
             # Final validation for perfect UMI concordance when UMI2 filtering is applied
             if validation_lookup is not None:
-                expected_umis = validation_lookup.get(r.query_name)
+                read_name = r.query_name
+                expected_umis = validation_lookup.get(read_name)
                 if expected_umis is None:
                     # Read not in validation lookup - skip to ensure perfect concordance
                     reads_skipped += 1
                     continue
-                
-                # Verify against original dataframe to ensure perfect match
-                read_row = df[df["Read Name"] == r.query_name]
-                if len(read_row) == 0:
+
+                # Verify against cached lookups to ensure perfect match
+                actual_umi1 = read_to_umi1.get(read_name)
+                actual_umi2 = read_to_umi2.get(read_name)
+                if actual_umi1 is None or actual_umi2 is None:
                     reads_skipped += 1
                     continue
-                
-                actual_umi1 = read_row[gcol].iloc[0]
-                actual_umi2 = read_row["UMI2"].iloc[0] if "UMI2" in read_row.columns else None
                 expected_umi1, expected_umi2 = expected_umis
                 
                 # Only write if UMIs match exactly (perfect concordance)
