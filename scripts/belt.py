@@ -253,18 +253,26 @@ def umi_map(reference, alignment, min_read_length, motif, whitelist, output_dir,
 ################################################################################
 
 @main.command(name='umi-group')
-@click.option('--alignment', required=True, help="Input BAM file")
+@click.option('--alignment', required=True, help="Input BAM file (UMI-tagged BAM from umi-map, or BAM + corrected_umis CSV)")
 @click.option('--corrected_umis', required=False, default=None, help="Optional path to corrected UMIs CSV. If omitted, UMIs are read from BAM tags (U1, U2, ...)")
 @click.option('--output_dir', required=True, help="Output directory")
 @click.option('--log_dir', required=False, help="Log output directory for JSON logs")
 @click.option('--grouping', required=True, help="UMI column to group by (e.g., UMI1, UMI2, 5pUMI, 3pUMI)")
 @click.option('--threshold', default=10, type=int, help="Threshold for grouping")
 @click.option('--umi2_majority_threshold', default=0.5, type=float, help="Fraction of reads required to have majority UMI2 (0.0-1.0). Default: 0.5 (50%)")
-
-
-def umi_group(alignment, corrected_umis, output_dir, log_dir, grouping, threshold, umi2_majority_threshold):
+@click.option('--write-group-csv', is_flag=True, help="Also write {sample}_filtered_umi_groups.csv (off by default for CLI)")
+def umi_group(alignment, corrected_umis, output_dir, log_dir, grouping, threshold, umi2_majority_threshold, write_group_csv):
     """Group long-read UMIs. Uses BAM UMI tags (U1, U2, ...) if --corrected_umis is not provided."""
-    long_read_umi_grouping_fast(alignment, output_dir, corrected_umis, grouping, threshold, log_dir=log_dir, umi2_majority_threshold=umi2_majority_threshold)
+    long_read_umi_grouping_fast(
+        alignedReads=alignment,
+        outputDir=output_dir,
+        correctedUMIs=corrected_umis,
+        grouping=grouping,
+        threshold=threshold,
+        log_dir=log_dir,
+        umi2_majority_threshold=umi2_majority_threshold,
+        write_group_csv=write_group_csv,
+    )
 
 
 ################################################################################
@@ -452,12 +460,13 @@ def run_pipeline(config):
     if not os.path.exists(tagged_bam):
         raise FileNotFoundError(f"Expected UMI-tagged BAM not found: {tagged_bam}")
     long_read_umi_grouping_fast(
-        tagged_bam,
-        config_data['output_dir'],
-        None,  # corrected_umis: read from BAM tags
-        config_data['grouping'],
-        config_data['threshold'],
-        log_dir=config_data.get('step6_log_dir')
+        alignedReads=tagged_bam,
+        outputDir=config_data['output_dir'],
+        correctedUMIs=None,  # read UMIs from BAM tags
+        grouping=config_data['grouping'],
+        threshold=config_data['threshold'],
+        log_dir=config_data.get('step6_log_dir'),
+        write_group_csv=config_data.get('write_group_csv', False),
     )
 
 

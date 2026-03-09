@@ -437,9 +437,12 @@ def umi_extraction_map(
     output_df["Read Name"] = output_df["Read Name"].astype(str)
 
     # Build read_name -> corrected UMI values for BAM tagging (U1=UMI1, U2=UMI2, ...)
-    # Use only corrected columns (umi_names), not _Raw
+    # and read_name -> raw UMI values (R1=UMI1_Raw, R2=UMI2_Raw, ...)
     read_to_umis = {}
-    for _, row in output_df.iterrows():
+    read_to_raw_umis = {}
+
+    # Corrected UMIs from df (current corrected/mapped table)
+    for _, row in df[["Read Name"] + umi_names].iterrows():
         rn = str(row["Read Name"])
         vals = []
         for col in umi_names:
@@ -450,6 +453,18 @@ def umi_extraction_map(
                 vals.append(str(v))
         read_to_umis[rn] = vals
 
+    # Raw UMIs from raw_df (pre-correction snapshot)
+    for _, row in raw_df[["Read Name"] + umi_names].iterrows():
+        rn = str(row["Read Name"])
+        vals = []
+        for col in umi_names:
+            v = row[col] if col in row else None
+            if pd.isna(v) or v == "":
+                vals.append(None)
+            else:
+                vals.append(str(v))
+        read_to_raw_umis[rn] = vals
+
     # Write tagged BAM: same alignments with U1, U2, ... tags (primary output)
     tagged_bam_path = os.path.join(outputDir, f"{sampleName}_umi_tagged.bam")
     add_log(f"Writing UMI-tagged BAM: {tagged_bam_path}")
@@ -458,11 +473,20 @@ def umi_extraction_map(
         for read in bam_in.fetch(until_eof=True):
             qname = read.query_name
             umi_vals = read_to_umis.get(qname)
+            raw_vals = read_to_raw_umis.get(qname)
+
+            # Corrected UMIs: U1 = UMI1, U2 = UMI2, ...
             if umi_vals is not None:
                 for i, val in enumerate(umi_vals):
                     if val is not None:
-                        # Tag U1 = UMI1, U2 = UMI2, ... (SAM allows [A-Za-z][A-Za-z0-9])
                         tag_name = f"U{i + 1}"
+                        read.set_tag(tag_name, val, value_type="Z")
+
+            # Raw UMIs: R1 = raw UMI1, R2 = raw UMI2, ...
+            if raw_vals is not None:
+                for i, val in enumerate(raw_vals):
+                    if val is not None:
+                        tag_name = f"R{i + 1}"
                         read.set_tag(tag_name, val, value_type="Z")
             bam_out.write(read)
     add_log("Finished writing UMI-tagged BAM.")

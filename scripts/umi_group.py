@@ -30,7 +30,8 @@ def long_read_umi_grouping_fast(
         threads=8, 
         write_fastq=False, 
         log_dir=None,
-        umi2_majority_threshold=0.5
+        umi2_majority_threshold=0.5,
+        write_group_csv=True,
         ):
     """
     Fast UMI grouping using BAM tagging and sorting.
@@ -48,6 +49,7 @@ def long_read_umi_grouping_fast(
                                      of reads that must have the majority UMI2 species for that 
                                      UMI1 group to be kept. Only reads matching the majority UMI2 
                                      are retained. Default: 0.5 (50%).
+    :param write_group_csv: If True, write {sample}_filtered_umi_groups.csv summarizing kept groups. Default: True.
     
     Additional filtering when grouping by UMI1 and UMI2 exists:
     - Only reads with both UMI1 and UMI2 (non-empty) are considered for grouping
@@ -242,7 +244,8 @@ def long_read_umi_grouping_fast(
     os.makedirs(logs_dir, exist_ok=True)
     log_json_path = os.path.join(logs_dir, f"{sample}_umi_group.log.json")
     filt_csv = os.path.join(outputDir, f"{sample}_filtered_umi_groups.csv")
-    keepers.rename("ReadCount").rename_axis(gcol).reset_index().to_csv(filt_csv, index=False)
+    if write_group_csv:
+        keepers.rename("ReadCount").rename_axis(gcol).reset_index().to_csv(filt_csv, index=False)
 
     if keepers.empty:
         try:
